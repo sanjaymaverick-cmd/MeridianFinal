@@ -1,9 +1,9 @@
-"""V4 decide/manage (longer-hold)."""
+"""V4 decide/manage (longer-hold). Artefact blend happens in the desk TS port."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 MIN_META_PROB = 0.55
 MAX_HEAT = 0.35

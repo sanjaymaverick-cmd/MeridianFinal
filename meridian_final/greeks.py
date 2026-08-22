@@ -1,4 +1,4 @@
-"""Net Greeks. Daily PnL = theta. Gamma scalp = 1/2 Gamma (dS)^2."""
+"""Net Greeks. Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)²."""
 
 from __future__ import annotations
 

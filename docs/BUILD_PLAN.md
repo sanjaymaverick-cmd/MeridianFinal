@@ -5,6 +5,8 @@
 **Lineage:** V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label  
 **Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees.
 
+---
+
 ## Goal
 
 One personal Indian-equity desk with four jobs:
@@ -16,6 +18,8 @@ One personal Indian-equity desk with four jobs:
 
 Premium **Kite Connect** is the intended live broker. This app is the intelligence + paper layer. OpenAlgo remains the optional strategy host from V4.
 
+---
+
 ## Locked decisions
 
 | Area | Choice |
@@ -26,7 +30,25 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
 | Capital | Paper budget ₹1,00,000. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
-| V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and the web desk (TypeScript). |
+| V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). |
+
+---
+
+## Architecture
+
+```
+Research (NL query + universe + Grok)
+        ↓ artefacts / shortlists
+Scoring (V1 five-factor) + Meta (V4 logistic)
+        ↓
+Decision engine (gates, size, manage)
+        ↓
+Greeks book / gamma scalp (reviews, optional futures hedge)
+        ↓
+OMS: paper (this desk)  →  Kite / OpenAlgo (later, armed)
+```
+
+---
 
 ## Phases
 
@@ -41,4 +63,14 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | F6 Kite live | Gated | Premium key on your box, static IP, Analyzer/paper first |
 | F7 Retrain / promote | Later | Real paper fills only; same gates as V4 M5 |
 
-Kite premium keys never belong in git. Paper first. Live is gated.
+---
+
+## Kite (premium)
+
+Personal/free Kite cannot poll quotes. Paid Connect can. Orders still need a **whitelisted static IP**. Never commit API keys. See V4 `docs/ZERODHA_KITE_API.md`.
+
+---
+
+## What never reaches the browser as an order
+
+Kelly internals, logistic coefficients (shown only as finished `meta_prob`), per-leg construction beyond net Δ Γ ν Θ, broker secrets. Review cards always include “not an order”.

@@ -1,4 +1,4 @@
-"""Zerodha-style CSV to holdings rows."""
+"""Zerodha-style CSV → holdings rows."""
 
 from __future__ import annotations
 

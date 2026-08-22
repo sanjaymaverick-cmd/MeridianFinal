@@ -1,0 +1,16 @@
+node_modules
+.env
+.env.local
+dist
+.output
+.nitro
+.tanstack
+data/pglite
+data/*.jsonl
+data/*.json
+*.log
+.DS_Store
+Thumbs.db
+artifacts
+screenshots
+public/__grok

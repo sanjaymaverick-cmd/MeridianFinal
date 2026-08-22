@@ -1,0 +1,17 @@
+MERIDIAN FINAL — run on your PC
+================================
+
+Windows:
+  1. Install Node.js 22 LTS from https://nodejs.org  (tick "Add to PATH")
+  2. Unzip this folder to  D:\work Dir\MeridianFinal
+  3. Double-click  run.bat
+  4. Open http://localhost:3000
+  5. Login  WQ3137   /   Test@password
+
+Mac / Linux:
+  unzip, then:  chmod +x run.sh && ./run.sh
+
+Full notes: LOCAL.md
+
+Paper only. Not Kite. Not an order.
+Leave the terminal open if you want overnight paper.

@@ -1,19 +1,18 @@
 # Meridian Final
 
-Personal Indian-equity desk that unifies V1–V4.
+Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 
-- Auto paper: meta-label gates, longer holds, kill switch
-- Book: CSV holdings → Buy / Hold / Sell + predictability
-- Greeks: ½ Γ (ΔS)² gamma scalping reviews
-- Research: natural-language queries over NSE names
-- Advice: Spot / Futures / Options cards from regime
+- **Auto paper** — server loop, ₹10L, Binance USDT overnight at live last
+- **Tape** — NSE, FX, COMEX/MCX, every Binance USDT pair
+- **Book** — CSV → Buy / Hold / Sell
+- **Greeks** — gamma scalping reviews
+- **Research** — natural-language names
+- **Advice** — spot / futures / options cards
 
-Python engines live in `meridian_final/`.
+**Run on your PC:** see [LOCAL.md](LOCAL.md) (`run.bat` on Windows, `run.sh` on macOS/Linux).
 
-**V3 and V4 stay frozen.** Do not edit those repositories.
+Test login: `WQ3137` / `Test@password`
 
-Spec: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md)
+Python engines: `meridian_final/`. Spec: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md)
 
-Kite premium keys never belong in git. Paper first. Live is gated.
-
-This is personal software. You can lose the whole book. Nothing here is an order.
+Kite keys never belong in git. This is personal software. You can lose the whole book. Nothing here is an order.
