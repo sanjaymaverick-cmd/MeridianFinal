@@ -105,7 +105,7 @@ type Engine = PaperBook & {
 const g = globalThis as typeof globalThis & {
   __meridianPaper?: { timer: ReturnType<typeof setInterval>; eng: Engine; rev: number };
 };
-const ENGINE_REV = 6;
+const ENGINE_REV = 7;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -303,7 +303,8 @@ async function tick() {
   const heat = positions.reduce((a, p) => a + p.sizePct, 0);
   const scan: ScanRow[] = [];
 
-  if (eng.mode === "auto" && !eng.killed) {
+  // auto and paper both open paper clips; advisory is scan/advice only
+  if ((eng.mode === "auto" || eng.mode === "paper") && !eng.killed) {
     const ranked = activeWatch(Object.keys(eng.live)).map((sym) => {
       const liveLast = eng.live[sym];
       if (!(liveLast > 0)) return null;
@@ -431,15 +432,18 @@ async function tick() {
 
 export function startPaperEngine() {
   if (typeof window !== "undefined") return;
+  // Already running at this revision — do NOT reset mode/kill on every getPaperBook poll.
+  // User toggles (advisory/paper/auto, kill) must stick until they change them.
   if (g.__meridianPaper?.rev === ENGINE_REV) {
-    g.__meridianPaper.eng.mode = "auto";
-    g.__meridianPaper.eng.killed = false;
     return;
   }
   if (g.__meridianPaper) clearInterval(g.__meridianPaper.timer);
   const eng = g.__meridianPaper?.eng ?? emptyEngine();
-  eng.mode = "auto";
-  eng.killed = false;
+  // Defaults only on cold start / engine rev bump — preserve existing flags when restarting timer.
+  if (!g.__meridianPaper?.eng) {
+    eng.mode = "auto";
+    eng.killed = false;
+  }
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));
   }, 2500);

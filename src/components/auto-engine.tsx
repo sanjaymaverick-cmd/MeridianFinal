@@ -20,16 +20,31 @@ export function AutoEngine() {
 }
 
 export async function setDeskMode(mode: "advisory" | "paper" | "auto") {
-  const book = await setPaperFlags({ data: { mode } });
-  useDesk.getState().hydratePaper(book);
+  // Optimistic UI — engine used to force mode=auto on every poll; that is fixed.
+  useDesk.getState().setMode(mode);
+  try {
+    const book = await setPaperFlags({ data: { mode } });
+    useDesk.getState().hydratePaper(book);
+  } catch (err) {
+    console.error("[desk] setMode failed", err);
+  }
 }
 
 export async function setDeskKilled(killed: boolean) {
-  const book = await setPaperFlags({ data: { killed } });
-  useDesk.getState().hydratePaper(book);
+  useDesk.getState().setKilled(killed);
+  try {
+    const book = await setPaperFlags({ data: { killed } });
+    useDesk.getState().hydratePaper(book);
+  } catch (err) {
+    console.error("[desk] setKilled failed", err);
+  }
 }
 
 export async function resetDeskPaper() {
-  const book = await resetPaperBook();
-  useDesk.getState().hydratePaper(book);
+  try {
+    const book = await resetPaperBook();
+    useDesk.getState().hydratePaper(book);
+  } catch (err) {
+    console.error("[desk] reset failed", err);
+  }
 }
