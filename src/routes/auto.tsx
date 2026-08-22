@@ -43,9 +43,9 @@ function AutoPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
           <h1 className="mt-1 font-display text-4xl">Overnight paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Fills print at **live Binance last** (no synthetic tape). After hours the book is crypto + perps only.
-            ₹10L, {MAX_POS_PAPER} clips, time-stop {TIME_STOP_SEC}s. Samples JSONL for training. Paper only. Kite stays
-            off.
+            PnL profile: paper target ₹10k → ₹100k in ~30 days (aggressive, not a promise). Live marks only.
+            Budget {inr(PAPER_BUDGET)}, max {MAX_POS_PAPER} clips, hold up to {TIME_STOP_SEC}s,
+            meta ≥ {MIN_META_PROB}. Longs + fade-shorts. Paper only — Kite stays off.
           </p>
         </div>
 
