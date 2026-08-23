@@ -17,7 +17,8 @@ test("costs, kelly, TBM, logistic, BS premiums", () => {
   const src = `
     import { fillFromMid, netFwdRet, roundTripBps } from ${JSON.stringify(files.costs)};
     import { kellySizePct, shouldPromote, PROMOTE_MIN_N } from ${JSON.stringify(files.kelly)};
-    import { tripleBarrier } from ${JSON.stringify(files.tbm)};
+    import { tripleBarrier, barrierFromExit } from ${JSON.stringify(files.tbm)};
+    import { cryptoFamily } from ${JSON.stringify(files.fo)};
     import { fitLogistic, predictRow, rocAuc } from ${JSON.stringify(files.logistic)};
     import { bsPremium } from ${JSON.stringify(files.fo)};
 
@@ -42,6 +43,13 @@ test("costs, kelly, TBM, logistic, BS premiums", () => {
     if (dn.label !== 0 || dn.barrier !== "lower") throw new Error("lower " + JSON.stringify(dn));
     const vert = tripleBarrier({ side: "long", entry: 100, high: 100.2, low: 99.8, stopPct: 0.01, tpR: 2, timedOut: true, netRet: 0.001 });
     if (vert.barrier !== "vertical" || vert.label !== 1) throw new Error("vertical " + JSON.stringify(vert));
+    const fromTp = barrierFromExit("take_profit", 0.01);
+    if (!fromTp || fromTp.barrier !== "upper" || fromTp.label !== 1) throw new Error("tp reason");
+    const fromSl = barrierFromExit("hard_stop", -0.02);
+    if (!fromSl || fromSl.barrier !== "lower" || fromSl.label !== 0) throw new Error("sl reason");
+    if (cryptoFamily("BTCPERP") !== "BTC" || cryptoFamily("BTCUSDPERP") !== "BTC") throw new Error("perp family");
+    if (cryptoFamily("BTC 24AUG26 76250 CE") !== "BTC") throw new Error("opt family");
+    if (cryptoFamily("ETHPERP") !== "ETH" || cryptoFamily("DOGE") !== null) throw new Error("family miss");
 
     const X = [[0], [0.2], [0.8], [1], [0.1], [0.9]];
     const y = [0, 0, 1, 1, 0, 1];

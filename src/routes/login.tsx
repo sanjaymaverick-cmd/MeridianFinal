@@ -8,7 +8,11 @@ import { seedTestDeskUser } from "@/lib/server/seed-test-user";
 
 export const Route = createFileRoute("/login")({
   loader: async () => {
-    await seedTestDeskUser();
+    try {
+      await seedTestDeskUser();
+    } catch {
+      /* guest can still use the desk */
+    }
     return null;
   },
   component: Login,
@@ -24,7 +28,7 @@ function Login() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void seedTestDeskUser();
+    void seedTestDeskUser().catch(() => {});
   }, []);
 
   async function onDeskLogin(e: FormEvent) {
@@ -32,7 +36,7 @@ function Login() {
     setError(null);
     setBusy(true);
     try {
-      await seedTestDeskUser();
+      await seedTestDeskUser().catch(() => {});
       const email = emailFromDeskId(id);
       const { data, error: err } = await authClient.signIn.email({
         email,
@@ -71,9 +75,9 @@ function Login() {
       <div className="w-full max-w-sm space-y-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Meridian Final</p>
-          <h1 className="mt-2 font-display text-4xl leading-none">The desk that holds.</h1>
+          <h1 className="mt-2 font-display text-4xl leading-none">Sign in</h1>
           <p className="mt-3 text-sm text-muted">
-            Test desk ID {TEST_DESK_ID}. Guest mode still runs the engines without signing in.
+            Paper desk. Kite off. Test ID {TEST_DESK_ID}. Use http://localhost:3000.
           </p>
         </div>
         {authEnabled ? (
@@ -99,7 +103,7 @@ function Login() {
                 />
               </label>
               {error && <p className="text-sm text-down">{error}</p>}
-              <Button type="submit" className="w-full" disabled={busy || !id || !password}>
+              <Button type="submit" className="w-full" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in to the desk"}
               </Button>
             </form>

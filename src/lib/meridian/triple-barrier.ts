@@ -26,3 +26,13 @@ export function tripleBarrier(args: {
   if (args.timedOut) return { label: args.netRet > 0 ? 1 : 0, barrier: "vertical" };
   return { label: args.netRet > 0 ? 1 : 0, barrier: "vertical" };
 }
+
+/** Prefer the engine's exit reason so TP/SL are not stored as a time barrier. */
+export function barrierFromExit(reason: string, pathRet: number): { label: 0 | 1; barrier: BarrierHit } | null {
+  if (reason === "take_profit" || reason === "trail") return { label: 1, barrier: "upper" };
+  if (reason === "hard_stop") return { label: 0, barrier: "lower" };
+  if (reason === "time_stop" || reason === "eod_flatten" || reason === "nse_session_closed" || reason === "night_crypto_only" || reason === "stale_model" || reason === "family_net") {
+    return { label: pathRet > 0 ? 1 : 0, barrier: "vertical" };
+  }
+  return null;
+}

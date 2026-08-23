@@ -62,6 +62,44 @@ export async function loadArtefactFromDisk(): Promise<ArtefactStatus> {
   return getArtefact();
 }
 
+export type SampleQuality = {
+  n: number;
+  timeStopN: number;
+  qualityHoldN: number;
+  avgHoldSec: number;
+};
+
+export async function sampleQuality(jsonlPath = JSONL): Promise<SampleQuality> {
+  let txt = "";
+  try {
+    txt = await readFile(jsonlPath, "utf8");
+  } catch {
+    return { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 };
+  }
+  let n = 0;
+  let timeStopN = 0;
+  let qualityHoldN = 0;
+  let holdSum = 0;
+  for (const line of txt.split("\n")) {
+    if (!line.trim()) continue;
+    let row: { hold_sec?: number; holdSec?: number; reason_close?: string; reasonClose?: string };
+    try {
+      row = JSON.parse(line) as typeof row;
+    } catch {
+      continue;
+    }
+    n += 1;
+    const hold = Number(row.hold_sec ?? row.holdSec);
+    if (Number.isFinite(hold)) {
+      holdSum += hold;
+      if (hold >= 300) qualityHoldN += 1;
+    }
+    const reason = String(row.reason_close ?? row.reasonClose ?? "");
+    if (reason === "time_stop" || reason.includes("time_stop")) timeStopN += 1;
+  }
+  return { n, timeStopN, qualityHoldN, avgHoldSec: n ? holdSum / n : 0 };
+}
+
 export async function retrainFromJsonl(jsonlPath = JSONL): Promise<ArtefactStatus | null> {
   let txt = "";
   try {

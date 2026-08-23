@@ -24,6 +24,52 @@
   --radius-lg: 16px;
   --radius-xl: 24px;
   --shadow-soft: 0 12px 40px color-mix(in oklab, #000 40%, transparent);
+  --motion-instant: 0ms;
+  --motion-quick: 100ms;
+  --motion-regular: 180ms;
+  --motion-out: 120ms;
+  --motion-slow: 280ms;
+  --motion-pulse: 2400ms;
+  --ease-out-desk: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-desk: cubic-bezier(0.32, 0, 0.67, 0);
+}
+
+@keyframes flash-up {
+  from { background-color: color-mix(in oklab, var(--color-up) 12%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes flash-down {
+  from { background-color: color-mix(in oklab, var(--color-down) 12%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes desk-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
+}
+
+.flash-up { animation: flash-up var(--motion-slow) var(--ease-out-desk); }
+.flash-down { animation: flash-down var(--motion-slow) var(--ease-out-desk); }
+
+.desk-ticker {
+  display: flex;
+  width: max-content;
+  animation: ticker 55s linear infinite;
+}
+.desk-ticker:hover { animation-play-state: paused; }
+
+[data-desk="auto"] .nav-auto {
+  animation: desk-breathe var(--motion-pulse) linear infinite;
+}
+[data-desk="killed"] .desk-ticker,
+[data-desk="killed"] .desk-globe {
+  animation: none !important;
+}
+[data-desk="killed"] .fill-tape {
+  filter: saturate(0.8);
 }
 
 @layer base {
