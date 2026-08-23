@@ -25,11 +25,11 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | Area | Choice |
 |------|--------|
 | Markets | India cash + F&O first. Crypto/Delta later, same as V4. |
-| Meta-label | V4 logistic artefact (synth scaffold) **blended** with primary p_success. Do not promote on synth-only AUC. |
-| Holds | Desk PnL profile: min 120s, time-stop 1200s, hard stop always. Python `meridian_final/` still documents V4 300s / 1.5R — that module is a frozen port, not the live loop. |
+| Meta-label | Synth scaffold until paper fills fit a logistic. Promote PnL only if n≥2000 and test AUC>0.5. Do not promote on synth-only AUC. |
+| Holds | Farm: 90s vertical barrier for labels. PnL: no time-stop — hard stop, 2.2R, trail. Python `meridian_final/` is a frozen port. |
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
-| Capital | Active desk profile is **PnL ₹10,000** (max 4 clips). Sample-farm profile remains ₹10L in `decision.ts`. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
+| Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
 | V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). The running Auto loop is TypeScript. |
 
 ---
@@ -61,7 +61,7 @@ OMS: paper (this desk)  →  Kite / OpenAlgo (later, armed)
 | F4 NL research | Done | Grok + heuristic fallback |
 | F5 Market advice | Done | Regime cards |
 | F6 Kite live | Gated | Premium key on your box, static IP, Analyzer/paper first |
-| F7 Retrain / promote | Later | Real paper fills only; same gates as V4 M5 |
+| F7 Retrain / promote | Done | Fit logistic on `paper-samples.jsonl` (time split). PnL sleeve arms only if n≥2000 and test AUC>0.5. |
 
 ---
 

@@ -2,7 +2,7 @@
 
 Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 
-- **Auto paper** — server loop, PnL profile ₹10k (sample-farm ₹10L still in code), Binance USDT + F&O watch overnight at live last. Paper target ₹10k→₹100k/~30d is not a promise.
+- **Auto paper** — ₹10L book, farm sleeve (labels + costs) and PnL sleeve (Kelly, armed after meta promote). Binance overnight; NSE cash/F&O only in the cash session. 10× is a return target, not a promise.
 - **Tape** — NSE, FX, COMEX/MCX, every Binance USDT pair
 - **Book** — CSV → Buy / Hold / Sell
 - **Greeks** — gamma scalping reviews

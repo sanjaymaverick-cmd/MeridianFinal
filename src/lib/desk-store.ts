@@ -20,6 +20,7 @@ export type Fill = {
   expiry?: string;
   strike?: number;
   right?: string;
+  sleeve?: "farm" | "pnl";
 };
 
 export type ScanRow = {

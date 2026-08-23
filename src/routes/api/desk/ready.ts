@@ -6,6 +6,8 @@ export const Route = createFileRoute("/api/desk/ready")({
     handlers: {
       GET: async () => {
         try {
+          const { startPaperEngine } = await import("@/lib/server/paper-engine");
+          startPaperEngine();
           const r = await seedTestDeskUser();
           return Response.json(r);
         } catch (e) {

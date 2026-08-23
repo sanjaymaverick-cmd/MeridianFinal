@@ -9,14 +9,29 @@ import {
   manage,
   sessionClock,
   PAPER_BUDGET,
-  MAX_POS_PAPER,
-  COOLDOWN_SEC,
-  MAX_HEAT,
-  SIZE_FLOOR,
-  SIZE_CEIL,
-  DESK_PROFILE,
+  FARM_PROFILE,
+  PNL_PROFILE,
+  PNL_CRYPTO,
+  profileOf,
+  STOP_ATR_MULT,
   type Position,
+  type DeskSleeve,
+  type SleeveProfile,
 } from "@/lib/meridian/decision";
+import { getArtefact, predictMetaProb } from "@/lib/meridian/artefact";
+import { costClassOf, fillFromMid, netFwdRet, roundTripBps, type CostClass } from "@/lib/meridian/costs";
+import {
+  confluenceFromParts,
+  emptyFeatures,
+  hoursToExpiry,
+  pSuccessFromScore,
+  pushTape,
+  tapeFeatures,
+  type FeatureVec,
+  type TapeStat,
+} from "@/lib/meridian/features";
+import { tripleBarrier } from "@/lib/meridian/triple-barrier";
+import { loadArtefactFromDisk, retrainFromJsonl } from "@/lib/server/retrain";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
 import { listBinanceAtmOptions, listBinancePerps } from "@/lib/server/binance-catalog";
 import type { UniverseName } from "@/lib/meridian/universe";
@@ -25,12 +40,13 @@ import {
   NSE_FUT_CORE,
   NSE_OPT_UNDERLIERS,
   OPTION_STUBS,
-  atmPremium,
   atmStrike,
+  bsPremium,
   daysToExpiry,
   formatFoOption,
   isCryptoFo,
   isFoSymbol,
+  isNseFo,
   isoDate,
   nextFridayExpiry,
   nextNseWeeklyExpiry,
@@ -52,6 +68,7 @@ type Fill = {
   expiry?: string;
   strike?: number;
   right?: string;
+  sleeve?: DeskSleeve;
 };
 
 type ScanRow = {
@@ -153,7 +170,7 @@ const CASH_WATCH = [
   "USDINR",
   "NIFTYFUT",
 ];
-const PNL_CRYPTO = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","TAO","PAXG"];
+const FARM_CRYPTO = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","TAO","PAXG"];
 
 function unique(xs: string[]) {
   return [...new Set(xs)];
@@ -171,18 +188,34 @@ function foWatchSymbols(live: Record<string, number>, feed: Record<string, strin
   });
 }
 
-function activeWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
+/** NSE F&O only while the cash session is open. Binance names stay 24/7. */
+function isNseHoursOnly(sym: string, feed?: string) {
+  if ((feed ?? "").startsWith("binance")) return false;
+  if (isCryptoFo(sym)) return false;
+  return isNseFo(sym) || feed === "nse-opt-model";
+}
+
+function cryptoHours(sym: string, feed: string | undefined, assetClass?: string) {
+  return assetClass === "crypto" || isCryptoFo(sym) || (feed ?? "").startsWith("binance");
+}
+
+function farmWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
   const fo = foWatchSymbols(live, feed);
-  if (DESK_PROFILE === "pnl") {
-    const liveMajors = Object.keys(live).filter((s) => PNL_CRYPTO.includes(s) || s.endsWith("PERP"));
-    const crypto = liveMajors.length ? liveMajors : PNL_CRYPTO.slice(0, 8).filter((s) => (live[s] ?? 0) > 0);
-    const cash = openSession ? CASH_WATCH.filter((s) => (live[s] ?? 0) > 0) : [];
-    return unique([...crypto, ...fo, ...cash]);
-  }
-  const crypto = Object.keys(live).filter((s) => feed[s] === "binance");
+  const nseFo = fo.filter((s) => isNseHoursOnly(s, feed[s]));
+  const cryptoFo = fo.filter((s) => !isNseHoursOnly(s, feed[s]));
+  const reserved = getArtefact().promoted ? new Set<string>(PNL_CRYPTO) : new Set<string>();
+  const liveMajors = Object.keys(live).filter((s) => (FARM_CRYPTO.includes(s) || s.endsWith("PERP")) && !reserved.has(s));
+  const crypto = liveMajors.length ? liveMajors : FARM_CRYPTO.slice(0, 8).filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s));
   const cash = openSession ? CASH_WATCH.filter((s) => (live[s] ?? 0) > 0) : [];
-  const cryptoOrDefault = crypto.length ? crypto : ["BTC", "ETH", "SOL"].filter((s) => (live[s] ?? 0) > 0);
-  return unique([...cryptoOrDefault, ...fo, ...cash]);
+  return unique([...crypto, ...cryptoFo, ...(openSession ? nseFo : []), ...cash]);
+}
+
+function pnlWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
+  const fo = foWatchSymbols(live, feed);
+  const nseFo = openSession ? fo.filter((s) => isNseHoursOnly(s, feed[s])) : [];
+  const cash = openSession ? CASH_WATCH.filter((s) => (live[s] ?? 0) > 0) : [];
+  const sat = PNL_CRYPTO.filter((s) => (live[s] ?? 0) > 0);
+  return unique([...cash, ...nseFo, ...sat]);
 }
 
 function quoteLabelOf(feed: string | undefined, delayed: boolean | undefined): QuoteLabel {
@@ -200,6 +233,42 @@ function foFields(sym: string, meta?: { expiry?: string; strike?: number; right?
   };
 }
 
+function clsFor(sym: string, eng: Engine): CostClass {
+  const feed = eng.liveFeed[sym];
+  const u = UNIVERSE.find((x) => x.symbol === sym);
+  const crypto = cryptoHours(sym, feed, u?.assetClass);
+  return costClassOf({
+    assetClass: u?.assetClass ?? nameStub(sym, eng.live[sym] ?? 0).assetClass,
+    nseFo: isNseHoursOnly(sym, feed),
+    crypto,
+  });
+}
+
+function featuresFor(eng: Engine, sym: string, u: (typeof UNIVERSE)[number], score: number, clock: ReturnType<typeof sessionClock>): FeatureVec {
+  const tape = tapeFeatures(eng.tape[sym]);
+  const parts = factorParts(u);
+  const confluence = confluenceFromParts(parts);
+  const pSuccess = pSuccessFromScore(score, tape.ret_short);
+  const atr = u.atrPct || 0.016;
+  const extra = foFields(sym, eng.foMeta[sym]);
+  const f = emptyFeatures();
+  f.confidence = Math.min(0.88, score / 10 + 0.06);
+  f.confluence = confluence;
+  f.p_success = pSuccess;
+  f.atr_pct = atr;
+  f.approx_stop_pct = Math.min(0.045, Math.max(0.006, STOP_ATR_MULT * atr));
+  f.minutes_since_midnight = clock.minutesSinceMidnight;
+  f.minutes_to_eod_flatten = clock.openSession ? clock.minutesToEod : 240;
+  f.ret_short = tape.ret_short;
+  f.range_pct = tape.range_pct;
+  f.dist_vwap = tape.dist_vwap;
+  f.vol_z = tape.vol_z;
+  f.india_vix = (eng.live.INDIAVIX ?? SNAPSHOT.INDIAVIX ?? 11.2) / 100;
+  f.pcr = eng.pcr || 0.92;
+  f.hours_to_expiry = hoursToExpiry(extra.expiry);
+  return f;
+}
+
 const DATA_DIR = path.join(process.cwd(), "data");
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const HEARTBEAT = path.join(DATA_DIR, "paper-heartbeat.json");
@@ -215,6 +284,14 @@ export type PaperBook = {
   samples: number;
   lastTick: number;
   ticksRun: number;
+  meta?: {
+    n: number;
+    auc: number;
+    hitRate: number;
+    promoted: boolean;
+    source: "synth" | "paper";
+    fittedAt: number | null;
+  };
 };
 
 type Engine = PaperBook & {
@@ -222,6 +299,11 @@ type Engine = PaperBook & {
   anchors: Record<string, number>;
   live: Record<string, number>;
   liveFeed: Record<string, string>;
+  vol: Record<string, number>;
+  tape: Record<string, TapeStat>;
+  pcr: number;
+  lastRetrainAt: number;
+  lastRetrainN: number;
   delayed: Record<string, boolean>;
   foMeta: Record<string, { expiry?: string; strike?: number; right?: string; contract?: string }>;
 };
@@ -229,7 +311,7 @@ type Engine = PaperBook & {
 const g = globalThis as typeof globalThis & {
   __meridianPaper?: { timer: ReturnType<typeof setInterval>; eng: Engine; rev: number };
 };
-const ENGINE_REV = 9;
+const ENGINE_REV = 15;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -255,6 +337,11 @@ function emptyEngine(): Engine {
     cooldownUntil: {},
     live: {},
     liveFeed: {},
+    vol: {},
+    tape: {},
+    pcr: 0.92,
+    lastRetrainAt: 0,
+    lastRetrainN: 0,
     delayed: {},
     foMeta: {},
   };
@@ -326,11 +413,13 @@ async function persistSample(row: Record<string, unknown>) {
   }
 }
 
-function putLive(eng: Engine, sym: string, last: number, feed: string, delayed: boolean, extra?: Engine["foMeta"][string]) {
+function putLive(eng: Engine, sym: string, last: number, feed: string, delayed: boolean, extra?: Engine["foMeta"][string], vol = 0) {
   if (!(last > 0) || !sym) return;
   eng.live[sym] = last;
   eng.liveFeed[sym] = feed;
   eng.delayed[sym] = delayed;
+  if (vol > 0) eng.vol[sym] = vol;
+  eng.tape[sym] = pushTape(eng.tape[sym], last, vol || eng.vol[sym] || 0);
   if (extra) eng.foMeta[sym] = extra;
 }
 
@@ -343,6 +432,7 @@ async function refreshLive(eng: Engine) {
   eng.liveFeed = feed;
   eng.delayed = delayed;
   eng.foMeta = foMeta;
+  eng.vol = {};
   const clockNow = sessionClock();
 
   try {
@@ -391,10 +481,15 @@ async function refreshLive(eng: Engine) {
         contract: q.contract,
       });
     }
+    for (const r of book.binance ?? []) {
+      if (r.last > 0 && r.vol > 0) eng.vol[r.symbol] = r.vol;
+    }
   } catch {
     /* keep last live */
   }
 
+  let atmCall = 0;
+  let atmPut = 0;
   for (const und of NSE_OPT_UNDERLIERS) {
     const spot = eng.live[und];
     if (!(spot > 0)) continue;
@@ -406,7 +501,9 @@ async function refreshLive(eng: Engine) {
     for (const right of ["CE", "PE"] as const) {
       const c = formatFoOption(und, exp, strike, right);
       if (eng.live[c.symbol] > 0 && (eng.liveFeed[c.symbol] ?? "").startsWith("binance")) continue;
-      const prem = atmPremium(spot, sigma, days);
+      const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
+      if (und === "NIFTY" && right === "CE") atmCall = prem;
+      if (und === "NIFTY" && right === "PE") atmPut = prem;
       putLive(eng, c.symbol, prem, "nse-opt-model", !clockNow.openSession, {
         expiry: c.expiry,
         strike,
@@ -415,6 +512,7 @@ async function refreshLive(eng: Engine) {
       });
     }
   }
+  if (atmCall > 0 && atmPut > 0) eng.pcr = atmPut / atmCall;
 
   if (!Object.keys(eng.live).some((s) => parseFo(s)?.underlier === "BTC")) {
     const spot = eng.live.BTC;
@@ -424,7 +522,7 @@ async function refreshLive(eng: Engine) {
       const days = daysToExpiry(isoDate(exp));
       for (const right of ["CE", "PE"] as const) {
         const c = formatFoOption("BTC", exp, strike, right);
-        putLive(eng, c.symbol, atmPremium(spot, 0.55, days), "crypto-opt-model", false, {
+        putLive(eng, c.symbol, bsPremium(spot, strike, 0.55, days, right, 0), "crypto-opt-model", false, {
           expiry: c.expiry,
           strike,
           right,
@@ -453,32 +551,44 @@ async function tick() {
     /* keep last live */
   }
 
-  if (eng.mode === "advisory" || eng.killed) return;
-
   const clock = sessionClock();
   const now = Date.now();
+  const paused = eng.mode === "advisory" || eng.killed;
   let positions = [...eng.positions];
 
   const still: Position[] = [];
   for (const pos of positions) {
     const livePx = eng.live[pos.symbol];
     const u = UNIVERSE.find((x) => x.symbol === pos.symbol);
-    const crypto = u?.assetClass === "crypto" || isCryptoFo(pos.symbol) || ((eng.liveFeed[pos.symbol] ?? "").startsWith("binance") && !isFoSymbol(pos.symbol));
-    const fo = isFoSymbol(pos.symbol) || u?.assetClass === "futures" || u?.assetClass === "options";
+    const feed = eng.liveFeed[pos.symbol] ?? "";
+    const allHours = cryptoHours(pos.symbol, feed, u?.assetClass);
+    const nseHours = isNseHoursOnly(pos.symbol, feed);
     const night = !clock.openSession;
-    if (!(livePx > 0) && !(night && !crypto && !fo)) {
+    const sessionFlat = night && !allHours;
+    if (!(livePx > 0) && !sessionFlat) {
       still.push(pos);
       continue;
     }
-    const px = livePx > 0 ? livePx : (eng.ticks[pos.symbol] ?? pos.entryPrice);
-    const allHours = crypto || fo;
-    const intent =
-      night && !allHours
-        ? { action: "SELL" as const, sizePct: 0, stopPct: pos.stopPct, reason: "night_crypto_only", metaProb: pos.metaProb }
-        : manage({ ...pos }, px, now, allHours ? 999 : clock.minutesToEod);
+    const mid = livePx > 0 ? livePx : (eng.ticks[pos.symbol] ?? pos.entryPrice);
+    if (paused && !(sessionFlat && nseHours)) {
+      still.push(pos);
+      continue;
+    }
+    const prof = profileOf(pos.sleeve);
+    const intent = sessionFlat
+      ? {
+          action: "SELL" as const,
+          sizePct: 0,
+          stopPct: pos.stopPct,
+          reason: nseHours ? "nse_session_closed" : "night_crypto_only",
+          metaProb: pos.metaProb,
+        }
+      : manage({ ...pos }, mid, now, allHours ? 999 : clock.minutesToEod, prof);
     if (intent.action === "SELL") {
-      const pnl = pnlOf(pos, px);
+      const cls = clsFor(pos.symbol, eng);
       const closeSide = pos.side === "short" ? "BUY" : "SELL";
+      const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
+      const pnl = pnlOf(pos, px);
       const label = quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]);
       const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
       const fill: Fill = {
@@ -490,13 +600,25 @@ async function tick() {
         price: px,
         reason: `${intent.reason}:${pos.side}:${label}`,
         quoteLabel: label,
+        sleeve: pos.sleeve,
         ...extra,
       };
       eng.fills = [fill, ...eng.fills].slice(0, 400);
       eng.dailyPnl += pnl;
-      eng.cooldownUntil[pos.symbol] = now + COOLDOWN_SEC * 1000;
+      eng.cooldownUntil[pos.symbol] = now + prof.COOLDOWN_SEC * 1000;
       const holdSec = (now - pos.entryTs) / 1000;
-      const fwdRet = pos.side === "short" ? pos.entryPrice / px - 1 : px / pos.entryPrice - 1;
+      const fwdRet = netFwdRet(pos.entryPrice, px, pos.side);
+      const timedOut = intent.reason === "time_stop";
+      const tb = tripleBarrier({
+        side: pos.side,
+        entry: pos.entryMid ?? pos.entryPrice,
+        high: pos.highSinceEntry,
+        low: pos.lowSinceEntry || mid,
+        stopPct: pos.stopPct,
+        tpR: prof.TP_R,
+        timedOut,
+        netRet: fwdRet,
+      });
       eng.samples += 1;
       await persistFill(fill, pos.metaProb, pnl);
       await persistSample({
@@ -521,88 +643,101 @@ async function tick() {
         pSuccess: pos.pSuccess,
         atrPct: pos.atrPct,
         score: pos.score,
-        label: fwdRet > 0 ? 1 : 0,
+        label: tb.label,
+        barrier: tb.barrier,
+        sleeve: pos.sleeve ?? "farm",
+        costBps: pos.costBps ?? roundTripBps(cls),
         expiry: extra.expiry,
         strike: extra.strike,
         right: extra.right,
         quoteLabel: label,
+        features: pos.features,
       });
     } else {
       still.push({
         ...pos,
-        highSinceEntry: Math.max(pos.highSinceEntry, px),
-        lowSinceEntry: Math.min(pos.lowSinceEntry || px, px),
+        highSinceEntry: Math.max(pos.highSinceEntry, mid),
+        lowSinceEntry: Math.min(pos.lowSinceEntry || mid, mid),
       });
     }
   }
   positions = still;
 
-  const heat = positions.reduce((a, p) => a + p.sizePct, 0);
   const scan: ScanRow[] = [];
+  const art = getArtefact();
 
-  if ((eng.mode === "auto" || eng.mode === "paper") && !eng.killed) {
-    const ranked = activeWatch(eng.live, eng.liveFeed, clock.openSession).map((sym) => {
+  async function openSleeve(sleeve: DeskSleeve, watch: string[], profile: SleeveProfile) {
+    const mine = positions.filter((p) => (p.sleeve ?? "farm") === sleeve);
+    const heat = mine.reduce((a, p) => a + p.sizePct, 0);
+    const ranked = watch.map((sym) => {
       const liveLast = eng.live[sym];
       if (!(liveLast > 0)) return null;
+      if (positions.some((p) => p.symbol === sym)) return null;
       const u = nameStub(sym, liveLast);
       const parts = factorParts(u);
       const score = compositeScore(parts, "Calm") ?? 6;
-      const pSuccess = Math.min(0.74, Math.max(0.42, 0.5 + (score - 6) * 0.04 + (Math.random() - 0.5) * 0.04));
+      const f = featuresFor(eng, sym, u, score, clock);
+      const hours = cryptoHours(sym, eng.liveFeed[sym], u.assetClass);
       const intent = decide(
         {
           symbol: sym,
-          confidence: Math.min(0.88, score / 10 + 0.06),
-          confluence: 72 + (score - 6),
-          pSuccess,
-          atrPct: u.atrPct || 0.016,
-          minutesToEod: clock.minutesToEod,
-          minutesSinceMidnight: 550,
+          confidence: f.confidence,
+          confluence: f.confluence,
+          pSuccess: f.p_success,
+          atrPct: f.atr_pct,
+          minutesToEod: hours ? 999 : clock.minutesToEod,
+          minutesSinceMidnight: clock.minutesSinceMidnight,
           beliefPosterior: 0.25,
           portfolioHeat: heat,
+          metaProb: art.promoted ? predictMetaProb(f) : undefined,
         },
         {
           dailyPnl: eng.dailyPnl,
           killed: eng.killed,
           live: false,
-          nOpen: positions.length,
+          nOpen: mine.length,
           cooldownUntil: eng.cooldownUntil,
+          promoted: art.promoted,
         },
         now,
+        profile,
       );
-      return { sym, px: liveLast, score, pSuccess, intent, u };
+      return { sym, px: liveLast, score, f, intent, u };
     }).filter(Boolean) as Array<{
       sym: string;
       px: number;
       score: number;
-      pSuccess: number;
+      f: FeatureVec;
       intent: ReturnType<typeof decide>;
       u: (typeof UNIVERSE)[number];
     }>;
 
     for (const row of ranked) {
       scan.push({
-        symbol: row.sym,
+        symbol: `${sleeve}:${row.sym}`,
         action: row.intent.action,
-        reason: row.intent.reason,
+        reason: `${sleeve}:${row.intent.reason}`,
         metaProb: row.intent.metaProb,
         px: row.px,
       });
     }
 
-    const openable = ranked.filter((r) => !positions.some((p) => p.symbol === r.sym));
-    openable.sort((a, b) => Math.abs(b.intent.metaProb - 0.5) - Math.abs(a.intent.metaProb - 0.5));
-
+    ranked.sort((a, b) => Math.abs(b.intent.metaProb - 0.5) - Math.abs(a.intent.metaProb - 0.5));
     let runningHeat = heat;
-    for (const row of openable) {
-      if (positions.length >= MAX_POS_PAPER) break;
-      const px = eng.live[row.sym];
-      if (!(px > 0)) continue;
+    let nOpen = mine.length;
+    for (const row of ranked) {
+      if (nOpen >= profile.MAX_POS) break;
+      const mid = eng.live[row.sym];
+      if (!(mid > 0)) continue;
+      if (!clock.openSession && isNseHoursOnly(row.sym, eng.liveFeed[row.sym])) continue;
       const long = row.intent.action === "BUY";
       const short = row.intent.action === "SELL" && row.intent.reason === "fade_short";
       if (!long && !short) continue;
       const side: "long" | "short" = long ? "long" : "short";
-      const sizePct = Math.min(SIZE_CEIL, Math.max(SIZE_FLOOR, row.intent.sizePct || SIZE_FLOOR));
-      if (runningHeat + sizePct > MAX_HEAT) continue;
+      const sizePct = Math.min(profile.SIZE_CEIL, Math.max(profile.SIZE_FLOOR, row.intent.sizePct || profile.SIZE_FLOOR));
+      if (runningHeat + sizePct > profile.MAX_HEAT) continue;
+      const cls = clsFor(row.sym, eng);
+      const px = fillFromMid(mid, side === "long" ? "buy" : "sell", cls);
       const qty = qtyFor(row.sym, px, sizePct, eng.ticks);
       if (qty <= 0) continue;
       const extra = foFields(row.sym, eng.foMeta[row.sym]);
@@ -611,35 +746,41 @@ async function tick() {
         symbol: row.sym,
         side,
         entryPrice: px,
+        entryMid: mid,
         entryTs: now,
         stopPct: long ? row.intent.stopPct : 0.012,
         sizePct,
         metaProb: row.intent.metaProb,
-        highSinceEntry: px,
-        lowSinceEntry: px,
+        highSinceEntry: mid,
+        lowSinceEntry: mid,
         qty,
         reasonOpen: long ? row.intent.reason : "fade_short",
-        confidence: Math.min(0.88, row.score / 10 + 0.06),
-        confluence: 72,
-        pSuccess: row.pSuccess,
-        atrPct: row.u.atrPct || 0.016,
+        confidence: row.f.confidence,
+        confluence: row.f.confluence,
+        pSuccess: row.f.p_success,
+        atrPct: row.f.atr_pct,
         score: row.score,
         expiry: extra.expiry,
         strike: extra.strike,
         right: extra.right,
         quoteLabel: label,
+        sleeve,
+        costBps: roundTripBps(cls),
+        features: row.f,
       };
       positions.push(pos);
       runningHeat += sizePct;
+      nOpen += 1;
       const fill: Fill = {
-        id: `${now}-${row.sym}-${side}-${qty}`,
+        id: `${now}-${row.sym}-${sleeve}-${side}-${qty}`,
         ts: now,
         symbol: row.sym,
         side: side === "long" ? "BUY" : "SELL",
         qty,
         price: px,
-        reason: `${pos.reasonOpen}:${label}`,
+        reason: `${sleeve}:${pos.reasonOpen}:${label}`,
         quoteLabel: label,
+        sleeve,
         ...extra,
       };
       eng.fills = [fill, ...eng.fills].slice(0, 400);
@@ -647,8 +788,20 @@ async function tick() {
     }
   }
 
+  if ((eng.mode === "auto" || eng.mode === "paper") && !eng.killed) {
+    await openSleeve("farm", farmWatch(eng.live, eng.liveFeed, clock.openSession), FARM_PROFILE);
+    await openSleeve("pnl", pnlWatch(eng.live, eng.liveFeed, clock.openSession), PNL_PROFILE);
+    if (eng.samples - eng.lastRetrainN >= 50 || (art.source === "synth" && now - eng.lastRetrainAt > 60_000)) {
+      const next = await retrainFromJsonl();
+      if (next) {
+        eng.lastRetrainAt = now;
+        eng.lastRetrainN = eng.samples;
+      }
+    }
+  }
+
   eng.positions = positions;
-  eng.scan = scan;
+  if (!paused) eng.scan = scan;
   try {
     await mkdir(DATA_DIR, { recursive: true });
     await writeFile(
@@ -659,11 +812,14 @@ async function tick() {
           mode: eng.mode,
           killed: eng.killed,
           open: eng.positions.length,
+          names: eng.positions.map((p) => `${p.sleeve ?? "farm"}:${p.symbol}`),
           samples: eng.samples,
+          promoted: getArtefact().promoted,
+          auc: getArtefact().auc,
           ticksRun: eng.ticksRun,
           liveNames: Object.keys(eng.live).length,
           source: "binance-live+fo",
-          profile: DESK_PROFILE,
+          profile: "farm+pnl",
           watch: Object.keys(eng.live).length,
           fo: Object.keys(eng.live).filter((s) => isFoSymbol(s) || (CRYPTO_PERPS as readonly string[]).includes(s)).length,
         },
@@ -682,6 +838,11 @@ export function startPaperEngine() {
     g.__meridianPaper.eng.liveFeed ??= {};
     g.__meridianPaper.eng.delayed ??= {};
     g.__meridianPaper.eng.foMeta ??= {};
+    g.__meridianPaper.eng.vol ??= {};
+    g.__meridianPaper.eng.tape ??= {};
+    g.__meridianPaper.eng.pcr ??= 0.92;
+    g.__meridianPaper.eng.lastRetrainAt ??= 0;
+    g.__meridianPaper.eng.lastRetrainN ??= 0;
     return;
   }
   if (g.__meridianPaper) clearInterval(g.__meridianPaper.timer);
@@ -693,11 +854,29 @@ export function startPaperEngine() {
   eng.liveFeed ??= {};
   eng.delayed ??= {};
   eng.foMeta ??= {};
+  eng.vol ??= {};
+  eng.tape ??= {};
+  eng.pcr ??= 0.92;
+  eng.lastRetrainAt ??= 0;
+  eng.lastRetrainN ??= 0;
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));
   }, 2500);
   g.__meridianPaper = { timer, eng, rev: ENGINE_REV };
+  void loadArtefactFromDisk()
+    .then(() => retrainFromJsonl())
+    .then((next) => {
+      if (next) {
+        eng.lastRetrainAt = Date.now();
+        eng.lastRetrainN = eng.samples;
+      }
+    })
+    .catch((err) => console.error("[paper] retrain", err));
   tick().catch((err) => console.error("[paper] first tick", err));
+}
+
+if (typeof window === "undefined" && g.__meridianPaper && g.__meridianPaper.rev !== ENGINE_REV) {
+  startPaperEngine();
 }
 
 export function getEngine(): Engine {
@@ -707,6 +886,7 @@ export function getEngine(): Engine {
 
 export function snapshotBook(): PaperBook {
   const e = getEngine();
+  const art = getArtefact();
   return {
     mode: e.mode,
     killed: e.killed,
@@ -718,6 +898,14 @@ export function snapshotBook(): PaperBook {
     samples: e.samples,
     lastTick: e.lastTick,
     ticksRun: e.ticksRun,
+    meta: {
+      n: art.n,
+      auc: art.auc,
+      hitRate: art.hitRate,
+      promoted: art.promoted,
+      source: art.source,
+      fittedAt: art.fittedAt,
+    },
   };
 }
 

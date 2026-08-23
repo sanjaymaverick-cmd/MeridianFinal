@@ -181,8 +181,35 @@ export function daysToExpiry(expiryIso: string, now = Date.now()): number {
   return Math.max(0.02, (exp.getTime() - now) / 86400000);
 }
 
+function normCdf(x: number) {
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const t = 1 / (1 + p * Math.abs(x));
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+/** Black–Scholes premium. CE and PE differ when spot ≠ strike. */
+export function bsPremium(spot: number, strike: number, sigma: number, days: number, right: "CE" | "PE", r = 0): number {
+  const S = Math.max(spot, 1e-9);
+  const K = Math.max(strike, 1e-9);
+  const T = Math.max(days, 0.02) / 365;
+  const s = Math.max(sigma, 0.01);
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + 0.5 * s * s) * T) / (s * sqrtT);
+  const d2 = d1 - s * sqrtT;
+  const disc = Math.exp(-r * T);
+  if (right === "CE") return Math.max(0.01, S * normCdf(d1) - K * disc * normCdf(d2));
+  return Math.max(0.01, K * disc * normCdf(-d2) - S * normCdf(-d1));
+}
+
 export function atmPremium(spot: number, sigma: number, days: number) {
-  return Math.max(0.01, 0.4 * spot * sigma * Math.sqrt(Math.max(days, 0.02) / 365));
+  return bsPremium(spot, spot, sigma, days, "CE", 0);
 }
 
 export function isFoSymbol(sym: string): boolean {
@@ -219,3 +246,14 @@ export const OPTION_STUBS = new Set([
   "BTCCM",
   "BTCPE",
 ]);
+
+/** INR listed F&O (NSE/BSE/MCX) — cash session only. Crypto perps/options stay 24/7. */
+export function isNseFo(sym: string): boolean {
+  if (isCryptoFo(sym)) return false;
+  const u = sym.toUpperCase();
+  if (u.startsWith("BTC") || u.startsWith("ETH") || u.startsWith("SOL")) return false;
+  if ((NSE_FUT_CORE as readonly string[]).includes(u)) return true;
+  if (OPTION_STUBS.has(u)) return true;
+  if (parseFo(sym)) return true;
+  return u.endsWith("FUT") || u.endsWith("CE") || u.endsWith("PE");
+}

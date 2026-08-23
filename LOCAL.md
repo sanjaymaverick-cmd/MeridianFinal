@@ -57,7 +57,7 @@ npm run dev:local
 | `/` | Command — indices, crypto, advice |
 | `/markets` | Tape — **Crypto** tab is every Binance USDT pair |
 | `/portfolio` | Book CSV → Buy/Hold/Sell |
-| `/auto` | Overnight paper loop + sample download (PnL profile ₹10k; F&O watch on) |
+| `/auto` | Overnight paper loop: farm sleeve (labels) + PnL sleeve (Kelly, armed after meta promote). NSE F&O only in the cash session. |
 | `/greeks` | Gamma book |
 | `/research` | Natural-language names |
 
@@ -105,7 +105,7 @@ Kite keys stay out of git. Paper first.
 
 **Gold/Nifty look stale** — Yahoo is delayed; NSE archives are often blocked. Crypto last is Binance.
 
-**PGLite WASM error** — use Node 22, not 18.
+**PGLite WASM abort / `Aborted()`** — `data/pglite` is corrupt (hard kill or crash). The desk moves it to `data/pglite-corrupt-*` and starts empty. Sign in again with `WQ3137`. Paper fills in the old dir are not loaded (`data/paper-samples.jsonl` is unchanged). Node 22+; 24 is fine. Node 18 is not.
 
 ## Zip contents
 

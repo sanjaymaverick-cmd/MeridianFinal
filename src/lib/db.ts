@@ -103,26 +103,51 @@ function createNeonSql(): Promise<Sql> {
   return globalRef.__pgSqlPromise__;
 }
 
-async function createPgliteSql(): Promise<Sql> {
-  // Embedded Postgres, imported on demand so it never loads on the Neon path.
-  // One in-memory instance per process, shared across HMR module instances, so
-  // data survives source edits (it resets on dev-server restart).
-  globalRef.__pgliteInstance__ ??= (async () => {
-    const { PGlite } = await import("@electric-sql/pglite");
-    const dataDir = process.env.PGLITE_DATA_DIR?.trim() || undefined;
+function pgliteCorruptStamp() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+async function openPglite(dataDir: string | undefined) {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const parsers = {
+    [OID_INT8]: Number,
+    [OID_DATE]: identity,
+    [OID_INTERVAL]: identity,
+  };
+  const boot = async (dir?: string) => {
     const pg = new PGlite({
-      ...(dataDir ? { dataDir } : {}),
-      parsers: {
-        [OID_INT8]: Number,
-        [OID_DATE]: identity,
-        [OID_INTERVAL]: identity,
-      },
+      ...(dir ? { dataDir: dir } : {}),
+      parsers,
     });
     await pg.waitReady;
     await pg.exec(
       "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
     );
     return pg;
+  };
+  if (!dataDir) return boot();
+  try {
+    return await boot(dataDir);
+  } catch (err) {
+    const dest = `${dataDir.replace(/[\\/]+$/, "")}-corrupt-${pgliteCorruptStamp()}`;
+    const { rename } = await import("node:fs/promises");
+    await rename(dataDir, dest);
+    console.error(
+      `[db] PGLite data dir unreadable (WASM abort). Moved to ${dest} and starting empty. Sign in again with WQ3137.`,
+    );
+    return boot(dataDir);
+  }
+}
+
+async function createPgliteSql(): Promise<Sql> {
+  // Embedded Postgres, imported on demand so it never loads on the Neon path.
+  // One in-memory instance per process, shared across HMR module instances, so
+  // data survives source edits (it resets on dev-server restart).
+  globalRef.__pgliteInstance__ ??= (async () => {
+    const dataDir = process.env.PGLITE_DATA_DIR?.trim() || undefined;
+    return openPglite(dataDir);
   })().catch((err) => {
     globalRef.__pgliteInstance__ = undefined;
     throw err;

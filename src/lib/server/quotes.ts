@@ -3,7 +3,7 @@ import { UNIVERSE } from "@/lib/meridian/universe";
 import { binanceAnchors, binancePairOf, listBinanceLive, listBinancePerps, listBinanceAtmOptions } from "@/lib/server/binance-catalog";
 import { sessionClock } from "@/lib/meridian/decision";
 import {
-  atmPremium,
+  bsPremium,
   atmStrike,
   formatFoOption,
   isoDate,
@@ -249,7 +249,7 @@ function applyDerived(quotes: Record<string, LiveQuote>) {
       const right: 'CE' | 'PE' = u.symbol.endsWith('PE') ? 'PE' : 'CE';
       const sigma = map.underlier === 'BTC' || map.underlier === 'ETH' ? 0.55 : map.underlier.includes('NIFTY') ? idxVol : 0.28;
       const strike = atmStrike(spot, map.underlier);
-      const prem = atmPremium(spot, sigma, days);
+      const prem = bsPremium(spot, strike, sigma, days, right, map.underlier === "BTC" || map.underlier === "ETH" ? 0 : 0.065);
       const c = formatFoOption(map.underlier, weekly, strike, right);
       const row: LiveQuote = {
         symbol: u.symbol,

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { resetDeskPaper, setDeskKilled, setDeskMode } from "@/components/auto-engine";
 import { useDesk } from "@/lib/desk-store";
 import { inr, formatIstStamp } from "@/lib/utils";
-import { PAPER_BUDGET, MIN_HOLD_SEC, MIN_META_PROB, TIME_STOP_SEC, MAX_POS_PAPER } from "@/lib/meridian/decision";
+import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
+import { PROMOTE_MIN_N } from "@/lib/meridian/kelly";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
 
 export const Route = createFileRoute("/auto")({ component: AutoPage });
@@ -53,9 +54,10 @@ function AutoPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
           <h1 className="mt-1 font-display text-4xl">Overnight paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            PnL profile: paper target ₹10k → ₹100k in ~30 days (aggressive, not a promise). Live marks only.
-            Budget {inr(PAPER_BUDGET)}, max {MAX_POS_PAPER} clips, hold up to {TIME_STOP_SEC}s,
-            meta ≥ {MIN_META_PROB}. Longs + fade-shorts. Paper only — Kite stays off.
+            Shared paper book {inr(PAPER_BUDGET)}. Farm sleeve labels clips (time barrier {FARM_PROFILE.TIME_STOP_SEC}s,
+            costs on fills). PnL sleeve is Kelly-sized, no time-stop, and stays flat until paper meta
+            beats 0.55 AUC and 52% hit rate on ≥ {PROMOTE_MIN_N.toLocaleString("en-IN")} samples. NSE cash/F&amp;O only in the
+            cash session; crypto is the overnight farm plus a BTC/ETH/SOL satellite. Paper only — Kite stays off.
           </p>
         </div>
 
@@ -76,10 +78,13 @@ function AutoPage() {
           </Button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-[24px] border border-border bg-surface p-5">
             <p className="text-[11px] uppercase tracking-wider text-subtle">Budget</p>
             <p className="mt-2 font-mono text-2xl">{inr(PAPER_BUDGET)}</p>
+            <p className="mt-1 text-[11px] text-subtle">
+              farm {FARM_PROFILE.MAX_POS} · pnl {PNL_PROFILE.MAX_POS} clips
+            </p>
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">
             <p className="text-[11px] uppercase tracking-wider text-subtle">Open MTM</p>
@@ -90,10 +95,11 @@ function AutoPage() {
             <p className={`mt-2 font-mono text-2xl ${dailyPnl >= 0 ? "text-up" : "text-down"}`}>{inr(dailyPnl)}</p>
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">
-            <p className="text-[11px] uppercase tracking-wider text-subtle">Training samples</p>
-            <p className="mt-2 font-mono text-2xl">{paper.data?.samples ?? 0}</p>
+            <p className="text-[11px] uppercase tracking-wider text-subtle">Meta</p>
+            <p className="mt-2 font-mono text-2xl">{paper.data?.meta?.promoted ? "armed" : "farming"}</p>
             <p className="mt-1 text-[11px] text-subtle">
-              {paper.data?.ticksRun ?? 0} ticks · meta ≥ {MIN_META_PROB}
+              n {paper.data?.meta?.n ?? 0} · auc {(paper.data?.meta?.auc ?? 0).toFixed(3)} · hit{" "}
+              {((paper.data?.meta?.hitRate ?? 0) * 100).toFixed(0)}% · {paper.data?.meta?.source ?? "synth"}
             </p>
           </div>
         </div>
@@ -108,6 +114,7 @@ function AutoPage() {
                 <thead className="text-[11px] uppercase tracking-wider text-subtle">
                   <tr>
                     <th className="py-2 font-medium">Symbol</th>
+                    <th className="font-medium">Sleeve</th>
                     <th className="font-medium">Side</th>
                     <th className="font-medium">Qty</th>
                     <th className="font-medium">Entry</th>
@@ -132,6 +139,9 @@ function AutoPage() {
                               {[p.expiry, p.strike, p.right].filter(Boolean).join(" ")}
                             </div>
                           )}
+                        </td>
+                        <td>
+                          <Badge tone={p.sleeve === "pnl" ? "up" : "neutral"}>{p.sleeve ?? "farm"}</Badge>
                         </td>
                         <td>
                           <Badge tone={p.side === "short" ? "down" : "up"}>{p.side ?? "long"}</Badge>
