@@ -46,21 +46,49 @@ function MarketsPage() {
           venue: "Binance",
         }));
     }
-    return UNIVERSE.filter((u) => (filter === "all" ? true : assetClassOf(u) === filter))
+    const base = UNIVERSE.filter((u) => (filter === "all" ? true : assetClassOf(u) === filter))
       .filter((u) => !needle || u.symbol.includes(needle) || u.name.toUpperCase().includes(needle))
       .map((u) => {
         const qq = m.data?.quotes?.[u.symbol];
         const last = qq?.last || ticks[u.symbol] || u.last;
+        const contract = qq?.contract || ([qq?.expiry, qq?.strike, qq?.right].filter(Boolean).join(" ") || u.name);
         return {
           symbol: u.symbol,
-          name: u.name,
+          name: contract,
           last,
           chg: qq?.chg ?? 0,
           rsi: qq?.rsi ?? u.rsi,
           quote: u.quote ?? "INR",
           venue: u.venue ?? "NSE",
+          delayed: qq?.delayed,
+          source: qq?.source,
         };
       });
+    if (filter === "futures" || filter === "options" || filter === "all") {
+      const seen = new Set(base.map((r) => r.symbol));
+      for (const [sym, qq] of Object.entries(m.data?.quotes ?? {})) {
+        if (seen.has(sym) || !(qq.last > 0)) continue;
+        const isOpt = qq.right === "CE" || qq.right === "PE";
+        const isFut = qq.right === "FUT" || /PERP$|FUT$/.test(sym);
+        if (filter === "options" && !isOpt) continue;
+        if (filter === "futures" && !isFut) continue;
+        if (filter === "all" && !isOpt && !isFut) continue;
+        if (needle && !sym.includes(needle) && !(qq.contract ?? "").toUpperCase().includes(needle)) continue;
+        base.push({
+          symbol: sym,
+          name: qq.contract || ([qq.expiry, qq.strike, qq.right].filter(Boolean).join(" ") || sym),
+          last: qq.last,
+          chg: qq.chg ?? 0,
+          rsi: qq.rsi ?? 50,
+          quote: /BTC|ETH|SOL/.test(sym) ? "USD" : "INR",
+          venue: (qq.source ?? "").startsWith("Binance") ? "Binance" : "NFO",
+          delayed: qq.delayed,
+          source: qq.source,
+        });
+        seen.add(sym);
+      }
+    }
+    return base;
   }, [filter, m.data, ticks, q, bn]);
 
   const pickedU = UNIVERSE.find((u) => u.symbol === pick);
@@ -78,7 +106,7 @@ function MarketsPage() {
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Tape</p>
             <h1 className="mt-1 font-display text-4xl">Live book + history</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted">
-              Crypto tab is every Binance USDT spot pair (free vision API, TRADING only). Paper fills at that last.
+              Crypto tab is Binance USDT spot. Futures tab includes USDT-M / COIN-M perps. Options show expiry and strike (live Binance or delayed NSE ATM model).
               Other tabs are NSE / FX / COMEX. Not a Kite LTP.
             </p>
           </div>
@@ -124,7 +152,7 @@ function MarketsPage() {
                   >
                     <td className="px-4 py-2">
                       <div className="font-mono text-xs">{r.symbol}</div>
-                      <div className="text-[11px] text-subtle">{r.name}</div>
+                      <div className="text-[11px] text-subtle">{r.name}{"delayed" in r && r.delayed ? " · delayed" : ""}</div>
                     </td>
                     <td className="font-mono text-xs">{formatPx(r.last, r.quote)}</td>
                     <td className={r.chg >= 0 ? "text-up" : "text-down"}>{pct(r.chg)}</td>

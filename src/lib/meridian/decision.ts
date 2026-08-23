@@ -131,6 +131,10 @@ export type Position = {
   pSuccess: number;
   atrPct: number;
   score: number;
+  expiry?: string;
+  strike?: number;
+  right?: string;
+  quoteLabel?: "live" | "delayed" | "model";
 };
 
 function finite(x: unknown, d = 0) {

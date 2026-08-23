@@ -16,6 +16,10 @@ export type Fill = {
   qty: number;
   price: number;
   reason: string;
+  quoteLabel?: "live" | "delayed" | "model";
+  expiry?: string;
+  strike?: number;
+  right?: string;
 };
 
 export type ScanRow = {

@@ -1,6 +1,6 @@
 # Meridian Final — Build Master Spec
 
-**Last updated:** 20 Aug 2026  
+**Last updated:** 23 Aug 2026  
 **Repos:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
 **Lineage:** V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label  
 **Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees.
@@ -26,11 +26,11 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 |------|--------|
 | Markets | India cash + F&O first. Crypto/Delta later, same as V4. |
 | Meta-label | V4 logistic artefact (synth scaffold) **blended** with primary p_success. Do not promote on synth-only AUC. |
-| Holds | Longer-quality: min 300s, hard stop always, no scratch exits. |
+| Holds | Desk PnL profile: min 120s, time-stop 1200s, hard stop always. Python `meridian_final/` still documents V4 300s / 1.5R — that module is a frozen port, not the live loop. |
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
-| Capital | Paper budget ₹1,00,000. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
-| V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). |
+| Capital | Active desk profile is **PnL ₹10,000** (max 4 clips). Sample-farm profile remains ₹10L in `decision.ts`. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
+| V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). The running Auto loop is TypeScript. |
 
 ---
 
@@ -57,7 +57,7 @@ OMS: paper (this desk)  →  Kite / OpenAlgo (later, armed)
 | F0 Spec + repo | Done | this file, GitHub `MeridianFinal` |
 | F1 Book analyzer | Done | CSV parse + B/H/S + predictability |
 | F2 Greeks / gamma | Done | Long/short gamma path, rehedge band |
-| F3 Auto paper | Done | Watchlist + decide/manage loop |
+| F3 Auto paper | Done | Watchlist + decide/manage loop. Desk now on PnL profile + F&O watch (perps/ATM options). |
 | F4 NL research | Done | Grok + heuristic fallback |
 | F5 Market advice | Done | Regime cards |
 | F6 Kite live | Gated | Premium key on your box, static IP, Analyzer/paper first |

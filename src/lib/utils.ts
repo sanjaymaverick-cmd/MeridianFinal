@@ -43,3 +43,29 @@ export function formatIst(ms: number) {
     minute: "2-digit",
   });
 }
+export function formatIstStamp(ms: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(ms));
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")}:${g("second")} IST`;
+}
+
+export function formatIstTime(ms: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(ms));
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${g("hour")}:${g("minute")}:${g("second")} IST`;
+}

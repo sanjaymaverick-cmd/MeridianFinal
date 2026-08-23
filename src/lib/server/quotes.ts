@@ -1,6 +1,16 @@
 import { BINANCE_API, convertPx, SNAPSHOT, yahooFor, type TickerMap } from "@/lib/meridian/tickers";
 import { UNIVERSE } from "@/lib/meridian/universe";
-import { binanceAnchors, binancePairOf, listBinanceLive } from "@/lib/server/binance-catalog";
+import { binanceAnchors, binancePairOf, listBinanceLive, listBinancePerps, listBinanceAtmOptions } from "@/lib/server/binance-catalog";
+import { sessionClock } from "@/lib/meridian/decision";
+import {
+  atmPremium,
+  atmStrike,
+  formatFoOption,
+  isoDate,
+  nextNseMonthlyExpiry,
+  nextNseWeeklyExpiry,
+  daysToExpiry,
+} from "@/lib/meridian/fo-contracts";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -18,6 +28,11 @@ export type LiveQuote = {
   atrPct: number | null;
   yahoo: string;
   source: string;
+  expiry?: string;
+  strike?: number;
+  right?: string;
+  delayed?: boolean;
+  contract?: string;
 };
 
 export type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -176,7 +191,7 @@ export function deskSymbols(): string[] {
   const set = new Set<string>(["NIFTY", "BANKNIFTY", "INDIAVIX", "SENSEX"]);
   for (const u of UNIVERSE) {
     const m = yahooFor(u.symbol);
-    if (m.feed === "binance" || m.feed === "derived") continue;
+    if (m.feed === "binance" || m.feed === "binance-fut" || m.feed === "derived") continue;
     set.add(u.symbol);
   }
   return [...set];
@@ -186,43 +201,61 @@ export async function refreshBinanceAnchors(): Promise<Record<string, number>> {
   return binanceAnchors();
 }
 
-function atmPremium(spot: number, sigma: number, days = 7) {
-  return Math.max(0.01, 0.4 * spot * sigma * Math.sqrt(days / 365));
+function realUnderlier(quotes: Record<string, LiveQuote>, underlier: string) {
+  const und = quotes[underlier];
+  if (!und || !(und.last > 0)) return null;
+  if (und.source === 'snapshot' || und.source === 'empty') return null;
+  return und;
 }
 
 function applyDerived(quotes: Record<string, LiveQuote>) {
+  const { openSession } = sessionClock();
+  const delayed = !openSession;
   const vix = quotes.INDIAVIX?.last ?? SNAPSHOT.INDIAVIX ?? 11.2;
   const idxVol = Math.max(0.08, vix / 100);
+  const weekly = nextNseWeeklyExpiry();
+  const monthly = nextNseMonthlyExpiry();
+  const days = daysToExpiry(isoDate(weekly));
   for (const u of UNIVERSE) {
     const map = yahooFor(u.symbol);
-    if (map.feed !== "derived" || !map.underlier) continue;
-    const und = quotes[map.underlier];
-    const spot = und?.last ?? SNAPSHOT[map.underlier] ?? 0;
-    if (!spot) continue;
-    if (map.kind === "futures") {
+    if (map.feed !== 'derived' || !map.underlier) continue;
+    const und = realUnderlier(quotes, map.underlier);
+    if (!und) continue;
+    const spot = und.last;
+    if (map.kind === 'futures') {
       const last = spot * 1.0007;
-      quotes[u.symbol] = {
+      const fut = {
         symbol: u.symbol,
         last,
-        prev: (und?.prev ?? spot) * 1.0007,
-        chg: und?.chg ?? 0,
-        sma20: und?.sma20 ?? last,
-        sma50: und?.sma50 ?? last,
-        high20: und?.high20 ?? last,
-        low20: und?.low20 ?? last,
-        rsi: und?.rsi ?? 50,
-        atrPct: und?.atrPct ?? 0.016,
+        prev: (und.prev ?? spot) * 1.0007,
+        chg: und.chg ?? 0,
+        sma20: und.sma20 ?? last,
+        sma50: und.sma50 ?? last,
+        high20: und.high20 ?? last,
+        low20: und.low20 ?? last,
+        rsi: und.rsi ?? 50,
+        atrPct: und.atrPct ?? 0.016,
         yahoo: map.yahoo,
-        source: "derived future (underlier + carry)",
-      };
-    } else if (map.kind === "options") {
-      const sigma = map.underlier === "BTC" || map.underlier === "ETH" ? 0.55 : map.underlier.includes("NIFTY") ? idxVol : 0.28;
-      const prem = atmPremium(spot, sigma);
-      quotes[u.symbol] = {
+        source: delayed
+          ? 'delayed last (' + map.underlier + ') + 7bp carry - NSE closed'
+          : 'derived future (underlier + carry)',
+        expiry: isoDate(monthly),
+        right: 'FUT',
+        delayed,
+        contract: map.underlier + ' ' + isoDate(monthly) + ' FUT',
+      } satisfies LiveQuote;
+      quotes[u.symbol] = fut;
+    } else if (map.kind === 'options') {
+      const right: 'CE' | 'PE' = u.symbol.endsWith('PE') ? 'PE' : 'CE';
+      const sigma = map.underlier === 'BTC' || map.underlier === 'ETH' ? 0.55 : map.underlier.includes('NIFTY') ? idxVol : 0.28;
+      const strike = atmStrike(spot, map.underlier);
+      const prem = atmPremium(spot, sigma, days);
+      const c = formatFoOption(map.underlier, weekly, strike, right);
+      const row: LiveQuote = {
         symbol: u.symbol,
         last: prem,
-        prev: prem / (1 + (und?.chg ?? 0) * 0.5),
-        chg: (und?.chg ?? 0) * (u.symbol.endsWith("PE") ? -0.6 : 0.6),
+        prev: prem / (1 + (und.chg ?? 0) * 0.5),
+        chg: (und.chg ?? 0) * (right === 'PE' ? -0.6 : 0.6),
         sma20: prem,
         sma50: prem,
         high20: prem * 1.15,
@@ -230,8 +263,17 @@ function applyDerived(quotes: Record<string, LiveQuote>) {
         rsi: 50,
         atrPct: 0.12,
         yahoo: map.yahoo,
-        source: "ATM model (0.4 σ √T) — not an exchange print",
+        source: delayed
+          ? 'delayed ATM model ' + c.symbol + ' - not an exchange print'
+          : 'ATM model ' + c.symbol + ' - not an exchange print',
+        expiry: c.expiry,
+        strike,
+        right,
+        delayed,
+        contract: c.symbol,
       };
+      quotes[u.symbol] = row;
+      if (!quotes[c.symbol]) quotes[c.symbol] = { ...row, symbol: c.symbol };
     }
   }
 }
@@ -313,10 +355,57 @@ export async function getLiveBook(force = false): Promise<LiveBook> {
 
   applyDerived(quotes);
 
+  const [perps, opts] = await Promise.all([
+    listBinancePerps(),
+    listBinanceAtmOptions({ BTC: quotes.BTC?.last ?? 0, ETH: quotes.ETH?.last ?? 0 }),
+  ]);
+  for (const r of perps) {
+    quotes[r.symbol] = {
+      symbol: r.symbol,
+      last: r.last,
+      prev: r.prev,
+      chg: r.chg,
+      sma20: r.last,
+      sma50: r.last,
+      high20: r.last,
+      low20: r.last,
+      rsi: 50,
+      atrPct: 0.035,
+      yahoo: r.pair,
+      source: r.kind === "coinm" ? "Binance COIN-M perp" : "Binance USDT-M perp",
+      right: "FUT",
+      delayed: false,
+      contract: r.symbol,
+    };
+    ok += 1;
+  }
+  for (const r of opts) {
+    quotes[r.symbol] = {
+      symbol: r.symbol,
+      last: r.last,
+      prev: r.prev,
+      chg: r.chg,
+      sma20: r.last,
+      sma50: r.last,
+      high20: r.last * 1.15,
+      low20: r.last * 0.85,
+      rsi: 50,
+      atrPct: 0.12,
+      yahoo: r.pair,
+      source: "Binance option " + r.pair,
+      expiry: r.expiry,
+      strike: r.strike,
+      right: r.right,
+      delayed: false,
+      contract: r.symbol,
+    };
+    ok += 1;
+  }
+
   const book: LiveBook = {
     quotes,
     asOf: Date.now(),
-    source: "Binance USDT (vision) + Yahoo NSE/FX/COMEX. Futures/options are derived, not exchange LTP.",
+    source: "Binance USDT + USDT-M/COIN-M + options. NSE F and O is delayed last or ATM model when cash session is closed.",
     ok,
     fail,
     binance: bnRows.map((r) => ({ symbol: r.symbol, pair: r.pair, last: r.last, chg: r.chg, vol: r.vol })),
@@ -332,13 +421,39 @@ export async function getHistoryBars(symbol: string, range: "1mo" | "3mo" | "1y"
   yahoo: string;
 }> {
   const map = yahooFor(symbol);
-  const pair = (map.feed === "binance" && map.binance) || binancePairOf(symbol);
+  const futPair = map.feed === "binance-fut" ? map.binance : null;
+  const pair = (map.feed === "binance" && map.binance) || (futPair && !futPair.includes("_") ? futPair : null) || binancePairOf(symbol);
+  if (futPair && futPair.includes("_")) {
+    const limit = range === "1mo" ? 30 : range === "3mo" ? 90 : range === "5y" ? 1000 : 365;
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 10000);
+    try {
+      const url = `https://dapi.binance.com/dapi/v1/klines?symbol=${futPair}&interval=1d&limit=${limit}`;
+      const res = await fetch(url, { signal: ac.signal, headers: { Accept: "application/json" } });
+      if (res.ok) {
+        const rows = (await res.json()) as Array<[number, string, string, string, string, string]>;
+        const bars: Bar[] = rows.map((r) => ({
+          t: r[0],
+          o: Number(r[1]),
+          h: Number(r[2]),
+          l: Number(r[3]),
+          c: Number(r[4]),
+          v: Number(r[5]),
+        })).filter((b) => Number.isFinite(b.c));
+        return { symbol, bars, source: `Binance COIN-M ${futPair} daily`, yahoo: futPair };
+      }
+    } catch {
+      /* fall through */
+    } finally {
+      clearTimeout(t);
+    }
+  }
   if (pair) {
     const limit = range === "1mo" ? 30 : range === "3mo" ? 90 : range === "5y" ? 1000 : 365;
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 10000);
     try {
-      const url = `${BINANCE_API}/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`;
+      const url = map.feed === "binance-fut" ? `https://fapi.binance.com/fapi/v1/klines?symbol=${pair}&interval=1d&limit=${limit}` : `${BINANCE_API}/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`;
       const res = await fetch(url, { signal: ac.signal, headers: { Accept: "application/json" } });
       if (res.ok) {
         const rows = (await res.json()) as Array<[number, string, string, string, string, string]>;

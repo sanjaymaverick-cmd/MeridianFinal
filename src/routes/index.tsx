@@ -4,7 +4,7 @@ import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
 import { getMarket } from "@/lib/server/desk";
 import { useDesk } from "@/lib/desk-store";
-import { inr, pct, formatPx, formatIst } from "@/lib/utils";
+import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
 import { PAPER_BUDGET } from "@/lib/meridian/decision";
 import type { MarketState } from "@/lib/meridian/advice";
@@ -141,13 +141,18 @@ function Command() {
                 <tbody>
                   {fills.slice(0, 8).map((f) => (
                     <tr key={f.id} className="border-t border-border">
-                      <td className="py-2 font-mono text-xs text-muted">
-                        {new Date(f.ts).toLocaleTimeString("en-IN")}
+                      <td className="py-2 font-mono text-xs text-muted">{formatIstStamp(f.ts)}</td>
+                      <td className="font-mono text-xs">
+                        {f.symbol}
+                        {(f.expiry || f.strike) && (
+                          <div className="text-[10px] text-subtle">{[f.expiry, f.strike, f.right].filter(Boolean).join(" ")}</div>
+                        )}
                       </td>
-                      <td className="font-mono text-xs">{f.symbol}</td>
                       <td className={f.side === "BUY" ? "text-up" : "text-down"}>{f.side}</td>
                       <td>{f.qty}</td>
-                      <td className="font-mono">{f.price.toFixed(2)}</td>
+                      <td className="font-mono">
+                        {f.price.toFixed(2)} <span className="text-[11px] text-muted">{formatIstStamp(f.ts)}</span>
+                      </td>
                       <td className="text-muted">{f.reason}</td>
                     </tr>
                   ))}

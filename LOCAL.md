@@ -57,7 +57,7 @@ npm run dev:local
 | `/` | Command — indices, crypto, advice |
 | `/markets` | Tape — **Crypto** tab is every Binance USDT pair |
 | `/portfolio` | Book CSV → Buy/Hold/Sell |
-| `/auto` | Overnight paper loop + sample download |
+| `/auto` | Overnight paper loop + sample download (PnL profile ₹10k; F&O watch on) |
 | `/greeks` | Gamma book |
 | `/research` | Natural-language names |
 

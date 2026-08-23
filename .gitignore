@@ -6,8 +6,12 @@ dist
 .nitro
 .tanstack
 data/pglite
+data/pglite-corrupt-*
 data/*.jsonl
 data/*.json
+data/smoke-screenshots/
+data/full-site-smoke.mjs
+.project_id
 *.log
 .DS_Store
 Thumbs.db

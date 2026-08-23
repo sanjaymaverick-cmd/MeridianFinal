@@ -1,5 +1,7 @@
 /** Desk symbol → Yahoo / Binance ticker. NSE archives 403 here; Binance.com is geo-blocked — vision data API works. */
 
+import { parseFo } from "./fo-contracts";
+
 export const TROY_OZ_G = 31.1034768;
 export const MCX_GOLD_PREMIUM = 1.1;
 export const BINANCE_API = "https://data-api.binance.vision";
@@ -9,7 +11,7 @@ export type YahooKind = "equity" | "index" | "crypto" | "fx" | "comex" | "future
 export type TickerMap = {
   yahoo: string;
   kind: YahooKind;
-  feed?: "yahoo" | "binance" | "derived";
+  feed?: "yahoo" | "binance" | "binance-fut" | "derived";
   binance?: string;
   convert?: "gold10g" | "silverKg" | "crudeInr" | "copperKg" | "gasInr" | "plat10g";
   underlier?: string;
@@ -111,8 +113,11 @@ export const TICKERS: Record<string, TickerMap> = {
   TCSFUT: { yahoo: "TCS.NS", kind: "futures", feed: "derived", underlier: "TCS" },
   GOLDFUT: { yahoo: "GC=F", kind: "futures", feed: "derived", underlier: "GOLD" },
   CRUDEFUT: { yahoo: "CL=F", kind: "futures", feed: "derived", underlier: "CRUDE" },
-  BTCPERP: { yahoo: "BTC-USD", kind: "futures", feed: "derived", underlier: "BTC" },
-  ETHPERP: { yahoo: "ETH-USD", kind: "futures", feed: "derived", underlier: "ETH" },
+  BTCPERP: { yahoo: "BTC-USD", kind: "futures", feed: "binance-fut", binance: "BTCUSDT" },
+  ETHPERP: { yahoo: "ETH-USD", kind: "futures", feed: "binance-fut", binance: "ETHUSDT" },
+  SOLPERP: { yahoo: "SOL-USD", kind: "futures", feed: "binance-fut", binance: "SOLUSDT" },
+  BTCUSDPERP: { yahoo: "BTC-USD", kind: "futures", feed: "binance-fut", binance: "BTCUSD_PERP" },
+  ETHUSDPERP: { yahoo: "ETH-USD", kind: "futures", feed: "binance-fut", binance: "ETHUSD_PERP" },
 
   NIFTYCE: { yahoo: "^NSEI", kind: "options", feed: "derived", underlier: "NIFTY" },
   NIFTYPE: { yahoo: "^NSEI", kind: "options", feed: "derived", underlier: "NIFTY" },
@@ -129,6 +134,16 @@ export const TICKERS: Record<string, TickerMap> = {
 export function yahooFor(symbol: string): TickerMap {
   const hit = TICKERS[symbol.toUpperCase()];
   if (hit) return hit;
+  const fo = parseFo(symbol);
+  if (fo) {
+    const und = TICKERS[fo.underlier];
+    return {
+      yahoo: und?.yahoo ?? `${fo.underlier}.NS`,
+      kind: fo.right === "FUT" ? "futures" : "options",
+      feed: fo.underlier === "BTC" || fo.underlier === "ETH" || fo.underlier === "SOL" ? "binance-fut" : "derived",
+      underlier: fo.underlier,
+    };
+  }
   return { yahoo: `${symbol.toUpperCase()}.NS`, kind: "equity", feed: "yahoo" };
 }
 

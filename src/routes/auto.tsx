@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { resetDeskPaper, setDeskKilled, setDeskMode } from "@/components/auto-engine";
 import { useDesk } from "@/lib/desk-store";
-import { inr } from "@/lib/utils";
+import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, MIN_HOLD_SEC, MIN_META_PROB, TIME_STOP_SEC, MAX_POS_PAPER } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
 
@@ -29,10 +29,20 @@ function AutoPage() {
 
   async function downloadSamples() {
     const rows = await getPaperSamples();
-    const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+    const cols = [
+      "id", "symbol", "side", "qty", "entry", "exit", "pnl",
+      "opened_ist", "closed_ist", "hold_sec", "fwd_ret",
+      "reason_open", "reason_close", "meta_prob", "score", "ts_open", "ts_close",
+    ];
+    const esc = (v: unknown) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => esc((r as Record<string, unknown>)[c])).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `meridian-paper-samples-${Date.now()}.json`;
+    a.download = `meridian-paper-samples-${Date.now()}.csv`;
     a.click();
   }
 
@@ -101,6 +111,7 @@ function AutoPage() {
                     <th className="font-medium">Side</th>
                     <th className="font-medium">Qty</th>
                     <th className="font-medium">Entry</th>
+                    <th className="font-medium">Opened IST</th>
                     <th className="font-medium">Last</th>
                     <th className="font-medium">Stop</th>
                     <th className="font-medium">Meta</th>
@@ -114,12 +125,20 @@ function AutoPage() {
                     const pnl = (px - p.entryPrice) * p.qty * dir;
                     return (
                       <tr key={p.symbol + p.entryTs} className="border-t border-border">
-                        <td className="py-2 font-mono text-xs">{p.symbol}</td>
+                        <td className="py-2 font-mono text-xs">
+                          {p.symbol}
+                          {(p.expiry || p.strike) && (
+                            <div className="text-[10px] text-subtle">
+                              {[p.expiry, p.strike, p.right].filter(Boolean).join(" ")}
+                            </div>
+                          )}
+                        </td>
                         <td>
                           <Badge tone={p.side === "short" ? "down" : "up"}>{p.side ?? "long"}</Badge>
                         </td>
                         <td>{p.qty}</td>
                         <td className="font-mono">{p.entryPrice.toFixed(2)}</td>
+                        <td className="font-mono text-[11px] text-muted">{formatIstStamp(p.entryTs)}</td>
                         <td className="font-mono">{px.toFixed(2)}</td>
                         <td className="font-mono">{(p.stopPct * 100).toFixed(2)}%</td>
                         <td>{(p.metaProb * 100).toFixed(0)}%</td>
@@ -141,8 +160,12 @@ function AutoPage() {
                 <Badge tone={f.side === "BUY" ? "up" : "down"}>{f.side}</Badge>
                 <span className="font-mono text-xs">{f.symbol}</span>
                 <span className="text-muted">
-                  {f.qty} @ {f.price.toFixed(2)}
+                  {f.qty} @ {f.price.toFixed(2)} <span className="font-mono text-[11px]">{formatIstStamp(f.ts)}</span>
                 </span>
+                {(f.expiry || f.strike) && (
+                  <span className="text-[11px] text-subtle">{[f.expiry, f.strike, f.right].filter(Boolean).join(" ")}</span>
+                )}
+                {f.quoteLabel && f.quoteLabel !== "live" && <Badge tone="neutral">{f.quoteLabel}</Badge>}
                 <span className="text-subtle">{f.reason}</span>
               </li>
             ))}
