@@ -67,7 +67,7 @@ export const getMarket = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 export const getHistory = createServerFn({ method: "GET" })
-  .validator((input: { symbol: string; range?: "1mo" | "3mo" | "1y" | "5y" }) => input)
+  .validator((input: { symbol: string; range?: "1d" | "5d" | "1mo" | "3mo" | "1y" | "5y" }) => input)
   .handler(async ({ data }) => getHistoryBars(data.symbol.toUpperCase(), data.range ?? "1y"));
 
 export const getPaperBook = createServerFn({ method: "GET" }).handler(async () => {
@@ -109,6 +109,8 @@ export const runPaperOp = createServerFn({ method: "POST" })
     }
     const symbol = String(data.symbol ?? "");
     if (data.type === "flatten") return operatorAction({ type: "flatten", symbol });
+    if (data.type === "flatten_all") return operatorAction({ type: "flatten_all" });
+    if (data.type === "reverse") return operatorAction({ type: "reverse", symbol });
     if (data.type === "skip") return operatorAction({ type: "skip", symbol });
     if (data.type === "block") return operatorAction({ type: "block", symbol });
     if (data.type === "unblock") return operatorAction({ type: "unblock", symbol });

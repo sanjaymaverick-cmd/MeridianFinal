@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
@@ -8,11 +8,17 @@ import { PriceChart } from "@/components/price-chart";
 import { getHistory, getMarket } from "@/lib/server/desk";
 import { UNIVERSE, assetClassOf } from "@/lib/meridian/universe";
 import { useDesk } from "@/lib/desk-store";
-import { formatIst, formatPx, pct } from "@/lib/utils";
-import { runDeskOp } from "@/components/auto-engine";
-import { toast } from "sonner";
+import { formatIst, formatPx, inr, pct } from "@/lib/utils";
+import { paperSend } from "@/lib/desk-ops";
+import { paperBlockedReason } from "@/lib/meridian/session-lock";
+import { FlashPx } from "@/components/flash-px";
+import { DepthHeatmap } from "@/components/depth-heatmap";
 
-export const Route = createFileRoute("/markets")({ component: MarketsPage });
+export const Route = createFileRoute("/markets")({
+  validateSearch: (s: Record<string, unknown>): { symbol?: string } =>
+    typeof s.symbol === "string" && s.symbol ? { symbol: s.symbol } : {},
+  component: MarketsPage,
+});
 
 const FILTERS = ["all", "equity", "crypto", "forex", "commodity", "futures", "options"] as const;
 
@@ -21,11 +27,21 @@ function MarketsPage() {
   const ticks = useDesk((s) => s.ticks);
   const asOf = useDesk((s) => s.asOf);
   const source = useDesk((s) => s.source);
+  const search = Route.useSearch();
+  const setFocus = useDesk((s) => s.setFocusSymbol);
+  const positions = useDesk((s) => s.positions);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("crypto");
-  const [pick, setPick] = useState("BTC");
-  const [range, setRange] = useState<"1mo" | "3mo" | "1y" | "5y">("1y");
+  const [pick, setPick] = useState(search.symbol ?? "BTC");
+  const [range, setRange] = useState<"1d" | "5d" | "1mo" | "3mo" | "1y" | "5y">("1d");
   const [q, setQ] = useState("");
   const [paperQty, setPaperQty] = useState("1");
+  const [depth, setDepth] = useState(false);
+  useEffect(() => {
+    if (search.symbol) {
+      setPick(search.symbol);
+      setFocus(search.symbol);
+    }
+  }, [search.symbol, setFocus]);
 
   const hist = useQuery({
     queryKey: ["history", pick, range],
@@ -147,21 +163,40 @@ function MarketsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {m.isLoading && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-sm text-muted">
+                      Binance USDT hydrating…
+                    </td>
+                  </tr>
+                )}
+                {rows.map((r) => {
+                  const delayed = "delayed" in r && r.delayed;
+                  const blocked = paperBlockedReason(r.symbol, "source" in r ? String(r.source ?? "") : r.venue === "Binance" ? "binance" : undefined);
+                  return (
                   <tr
                     key={r.symbol}
-                    className={`cursor-pointer border-t border-border ${pick === r.symbol ? "bg-elevated" : ""}`}
-                    onClick={() => setPick(r.symbol)}
+                    className={`cursor-pointer border-t border-border ${pick === r.symbol ? "bg-elevated" : ""} ${delayed || blocked ? "opacity-50" : ""}`}
+                    onClick={() => {
+                      setPick(r.symbol);
+                      setFocus(r.symbol);
+                    }}
                   >
                     <td className="px-4 py-2">
                       <div className="font-mono text-xs">{r.symbol}</div>
-                      <div className="text-[11px] text-subtle">{r.name}{"delayed" in r && r.delayed ? " · delayed" : ""}</div>
+                      <div className="text-[11px] text-subtle">
+                        {r.name}
+                        {delayed ? " · DELAYED · MODEL" : ""}
+                        {blocked ? " · NSE CLOSED" : ""}
+                      </div>
                     </td>
-                    <td className="font-mono text-xs">{formatPx(r.last, r.quote)}</td>
+                    <td className="font-mono text-xs">
+                      <FlashPx symbol={r.symbol}>{formatPx(r.last, r.quote)}</FlashPx>
+                    </td>
                     <td className={r.chg >= 0 ? "text-up" : "text-down"}>{pct(r.chg)}</td>
                     <td className="font-mono text-xs text-muted">{r.rsi ? r.rsi.toFixed(0) : "—"}</td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
@@ -174,12 +209,15 @@ function MarketsPage() {
               </div>
               <Badge tone="neutral">{venue}</Badge>
             </div>
-            <div className="mt-3 flex gap-2">
-              {(["1mo", "3mo", "1y", "5y"] as const).map((r) => (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(["1d", "5d", "1mo", "3mo", "1y", "5y"] as const).map((r) => (
                 <Button key={r} size="sm" variant={range === r ? "default" : "outline"} onClick={() => setRange(r)}>
                   {r}
                 </Button>
               ))}
+              <Button size="sm" variant={depth ? "default" : "outline"} onClick={() => setDepth((v) => !v)}>
+                Depth
+              </Button>
             </div>
             <div className="mt-4">
               {hist.isFetching && !hist.data ? (
@@ -188,7 +226,9 @@ function MarketsPage() {
                 <PriceChart bars={hist.data?.bars ?? []} quote={quote} />
               )}
             </div>
+            {depth && <div className="mt-3"><DepthHeatmap rows={rows.map((r) => ({ symbol: r.symbol, last: r.last, chg: r.chg, vol: "vol" in r ? Number((r as { vol?: number }).vol) : undefined }))} /></div>}
             <p className="mt-2 text-[11px] text-subtle">{hist.data?.source ?? source}. Not an order.</p>
+            <p className="mt-1 text-[11px] text-muted">Notional {inr(Number(paperQty || 0) * lastPx)}</p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <label className="text-xs text-subtle">
                 Qty
@@ -198,19 +238,33 @@ function MarketsPage() {
                   onChange={(e) => setPaperQty(e.target.value)}
                 />
               </label>
-              <Button
-                size="sm"
-                onClick={() => {
-                  const qty = Number(paperQty);
-                  if (!(qty > 0)) {
-                    toast.error("Qty must be positive");
-                    return;
-                  }
-                  void runDeskOp({ type: "open", symbol: pick, qty, side: "long", sleeve: "farm" });
-                  toast.message(`Papered ${qty} ${pick}. Kite stays off.`);
-                }}
-              >
-                Paper this qty
+              {(["long", "short"] as const).map((side) => (
+                <Button
+                  key={side}
+                  size="sm"
+                  variant={side === "short" ? "outline" : "default"}
+                  disabled={!!paperBlockedReason(pick, venue === "Binance" ? "binance" : undefined)}
+                  onClick={() => {
+                    const qty = Number(paperQty);
+                    if (!(qty > 0)) return;
+                    void paperSend({ type: "open", symbol: pick, qty, side, sleeve: "farm", feed: venue === "Binance" ? "binance" : undefined });
+                  }}
+                >
+                  {side === "long" ? "BUY" : "SELL"}
+                </Button>
+              ))}
+              {positions.some((p) => p.symbol === pick) && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => void paperSend({ type: "flatten", symbol: pick })}>
+                    Flatten
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void paperSend({ type: "reverse", symbol: pick })}>
+                    Reverse
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => void paperSend({ type: "skip", symbol: pick })}>
+                Skip
               </Button>
             </div>
           </div>

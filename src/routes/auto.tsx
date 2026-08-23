@@ -1,18 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { resetDeskPaper, runDeskOp, setDeskKilled, setDeskMode } from "@/components/auto-engine";
+import { resetDeskPaper, setDeskMode } from "@/components/auto-engine";
 import { useDesk } from "@/lib/desk-store";
 import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
-import { PromotionStrip } from "@/components/promotion-strip";
+import { PromotionChip } from "@/components/promotion-strip";
 import { explainReason, MODE_CHIPS } from "@/lib/meridian/operator-copy";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
+import { paperSend } from "@/lib/desk-ops";
+import { HeatRing } from "@/components/heat-ring";
 
 export const Route = createFileRoute("/auto")({ component: AutoPage });
 
@@ -62,14 +64,14 @@ function AutoPage() {
       <div className="flex flex-col gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
-          <h1 className="mt-1 font-display text-4xl">Overnight paper loop</h1>
+          <h1 className="mt-1 font-display text-4xl">Paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
             Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Signals proposes and still runs stops. Paper and Auto
             both send farm clips. Flatten or skip a single name here — you are not a spectator.
           </p>
         </div>
 
-        <PromotionStrip meta={paper.data?.meta} />
+        <PromotionChip meta={paper.data?.meta} />
 
         <div className="flex flex-wrap gap-2">
           {MODE_CHIPS.map((m) => (
@@ -83,17 +85,10 @@ function AutoPage() {
               {m.label}
             </Button>
           ))}
-          <Button
-            variant={killed ? "outline" : "danger"}
-            disabled={guest}
-            onClick={() => void setDeskKilled(!killed)}
-          >
-            {killed ? "Resume paper" : "Halt"}
-          </Button>
-          <Button variant="outline" className="md:hidden" onClick={() => setMenu((v) => !v)}>
+          <Button variant="outline" onClick={() => setMenu((v) => !v)}>
             More
           </Button>
-          <div className={`flex flex-wrap gap-2 ${menu ? "" : "hidden md:flex"}`}>
+          <div className={`flex flex-wrap gap-2 ${menu ? "" : "hidden"}`}>
             <Button variant="outline" onClick={() => void downloadSamples()}>
               Download fit samples
             </Button>
@@ -115,7 +110,7 @@ function AutoPage() {
                 </Button>
               </>
             ) : (
-              <Button variant="ghost" className="hidden md:inline-flex" disabled={guest} onClick={() => setResetAsk(true)}>
+              <Button variant="ghost" disabled={guest} onClick={() => setResetAsk(true)}>
                 Reset paper…
               </Button>
             )}
@@ -129,7 +124,7 @@ function AutoPage() {
           <Kpi label="Budget" value={inr(PAPER_BUDGET)} sub={`farm ${FARM_PROFILE.MAX_POS} · pnl ${PNL_PROFILE.MAX_POS}`} />
           <Kpi label="Open MTM" value={inr(mtm)} up={mtm >= 0} />
           <Kpi label="Realised" value={inr(dailyPnl)} up={dailyPnl >= 0} />
-          <Kpi label="Heat" value={`${(heat * 100).toFixed(0)}%`} sub="farm + pnl size" />
+          <Kpi label="Heat" value={`${(heat * 100).toFixed(0)}%`} sub="farm + pnl size" ring={<HeatRing heat={heat} cap={0.9} />} />
           <Kpi
             label="Meta"
             value={paper.data?.meta?.promoted ? "armed" : "not ready"}
@@ -139,24 +134,26 @@ function AutoPage() {
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
           <h2 className="text-sm font-medium">
-            {mode === "advisory" ? "Action center — would send, not sent" : "Action center"}
+            {killed ? "HALTED — no new clips" : mode === "advisory" ? "Action center — would send, not sent" : "Action center"}
           </h2>
           <p className="mt-1 text-xs text-subtle">
-            {mode === "advisory"
-              ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run."
-              : mode === "auto"
-                ? "Auto is sending farm clips on its own. Skip a name or flatten an open clip."
-                : "Paper is sending farm clips. Skip a name or flatten an open clip."}
+            {killed
+              ? "Open risk still here. Stops paused. Resume paper from Halt in the header."
+              : mode === "advisory"
+                ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run."
+                : mode === "auto"
+                  ? "Auto is sending farm clips on its own. Skip a name or flatten an open clip."
+                  : "Paper is sending farm clips. Skip a name or flatten an open clip."}
           </p>
-          {pending.length === 0 ? (
-            <p className="mt-3 text-sm text-muted">No BUY/SELL proposals this tick.</p>
+          {scan.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">Waiting on the next scan tick.</p>
           ) : (
             <ul className="mt-3 space-y-2">
-              {pending.slice(0, 16).map((r) => (
-                <li key={r.symbol} className="flex flex-wrap items-center gap-2 rounded-[16px] border border-border bg-elevated p-3">
+              {[...pending, ...idle].slice(0, 16).map((r) => (
+                <li key={r.symbol} className={`flex flex-wrap items-center gap-2 rounded-[16px] border border-border bg-elevated p-3 ${killed ? "opacity-50" : ""}`}>
                   <span className="font-mono text-xs">{r.symbol}</span>
-                  <Badge tone={r.action === "BUY" ? "up" : "down"}>
-                    {mode === "advisory" ? `Would ${r.action}` : r.action}
+                  <Badge tone={r.action === "BUY" ? "up" : r.action === "SELL" ? "down" : "neutral"}>
+                    {mode === "advisory" && (r.action === "BUY" || r.action === "SELL") ? `Would ${r.action}` : r.action}
                   </Badge>
                   <span className="text-muted">{(r.metaProb * 100).toFixed(0)}% meta</span>
                   <span className="text-subtle">{explainReason(r.reason)}</span>
@@ -165,9 +162,9 @@ function AutoPage() {
                       <Button
                         size="sm"
                         onClick={() =>
-                          void runDeskOp({
+                          void paperSend({
                             type: "open",
-                            symbol: r.symbol,
+                            symbol: r.symbol.replace(/^(farm|pnl):/, ""),
                             side: r.action === "SELL" ? "short" : "long",
                             sleeve: r.sleeve,
                           })
@@ -176,7 +173,7 @@ function AutoPage() {
                         Approve
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" onClick={() => void runDeskOp({ type: "skip", symbol: r.symbol })}>
+                    <Button size="sm" variant="outline" onClick={() => void paperSend({ type: "skip", symbol: r.symbol })}>
                       Skip
                     </Button>
                   </span>
@@ -232,14 +229,17 @@ function AutoPage() {
                         </td>
                         <td>{p.qty}</td>
                         <td className="font-mono text-xs">
-                          {left != null ? `${Math.round(left)}s to label` : `${Math.round(held)}s`}
+                          {left != null ? `STOP ${Math.round(left)}s` : `${Math.round(held)}s`}
                         </td>
                         <td className="font-mono">{(p.stopPct * 100).toFixed(2)}%</td>
                         <td>{(p.metaProb * 100).toFixed(0)}%</td>
                         <td className={pnl >= 0 ? "text-up" : "text-down"}>{inr(pnl)}</td>
                         <td>
-                          <Button size="sm" variant="outline" onClick={() => void runDeskOp({ type: "flatten", symbol: p.symbol })}>
+                          <Button size="sm" variant="outline" onClick={() => void paperSend({ type: "flatten", symbol: p.symbol })}>
                             Flatten
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => void paperSend({ type: "reverse", symbol: p.symbol })}>
+                            Reverse
                           </Button>
                         </td>
                       </tr>
@@ -253,18 +253,15 @@ function AutoPage() {
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
           <h2 className="text-sm font-medium">Fill tape</h2>
-          <ul className="mt-3 space-y-2">
-            {fills.slice(0, 24).map((f) => (
-              <li key={f.id} className="flex flex-wrap items-center gap-3 text-sm">
+          <ul className="fill-tape mt-3 space-y-2">
+            {fills.slice(0, 12).map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center gap-3 text-sm" style={{ animation: "flash-up var(--motion-regular) var(--ease-out-desk)" }}>
                 <Badge tone={f.side === "BUY" ? "up" : "down"}>{f.side}</Badge>
                 <span className="font-mono text-xs">{f.symbol}</span>
                 <span className="text-muted">
                   {f.qty} @ {f.price.toFixed(2)} <span className="font-mono text-[11px]">{formatIstStamp(f.ts)}</span>
                 </span>
                 <span className="text-subtle">{explainReason(f.reason)}</span>
-                <Button size="sm" variant="ghost" onClick={() => void runDeskOp({ type: "skip", symbol: f.symbol })}>
-                  Skip name
-                </Button>
               </li>
             ))}
             {fills.length === 0 && <li className="text-sm text-muted">Engine starting…</li>}
@@ -293,11 +290,14 @@ function AutoPage() {
   );
 }
 
-function Kpi({ label, value, sub, up }: { label: string; value: string; sub?: string; up?: boolean }) {
+function Kpi({ label, value, sub, up, ring }: { label: string; value: string; sub?: string; up?: boolean; ring?: ReactNode }) {
   return (
     <div className="rounded-[24px] border border-border bg-surface p-5">
       <p className="text-[11px] uppercase tracking-wider text-subtle">{label}</p>
-      <p className={`mt-2 font-mono text-2xl ${up === undefined ? "" : up ? "text-up" : "text-down"}`}>{value}</p>
+      <div className="mt-2 flex items-center gap-3">
+        {ring}
+        <p className={`font-mono text-2xl ${up === undefined ? "" : up ? "text-up" : "text-down"}`}>{value}</p>
+      </div>
       {sub && <p className="mt-1 text-[11px] text-subtle">{sub}</p>}
     </div>
   );

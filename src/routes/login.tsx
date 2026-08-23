@@ -75,10 +75,9 @@ function Login() {
       <div className="w-full max-w-sm space-y-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Meridian Final</p>
-          <h1 className="mt-2 font-display text-4xl leading-none">The desk that holds.</h1>
+          <h1 className="mt-2 font-display text-4xl leading-none">Sign in</h1>
           <p className="mt-3 text-sm text-muted">
-            Test desk ID {TEST_DESK_ID}. Guests can watch the farm. Sign in to Halt, Reset, or change mode on the
-            shared book. Use http://localhost:3000 (not a mixed 127.0.0.1 origin).
+            Paper desk. Kite off. Test ID {TEST_DESK_ID}. Use http://localhost:3000.
           </p>
         </div>
         {authEnabled ? (
@@ -104,7 +103,7 @@ function Login() {
                 />
               </label>
               {error && <p className="text-sm text-down">{error}</p>}
-              <Button type="submit" className="w-full" disabled={busy || !id || !password}>
+              <Button type="submit" className="w-full" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in to the desk"}
               </Button>
             </form>

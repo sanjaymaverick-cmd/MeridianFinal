@@ -146,8 +146,8 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
     cards.push({
       id: "fut-1",
       sleeve: "Futures",
-      stance: "Long",
-      title: "Index longs only with a stop",
+      stance: weekend ? "Neutral" : "Long",
+      title: weekend ? "Cash session closed" : "Index longs only with a stop",
       body: weekend
         ? "Cash session is closed. No NSE futures overlay until the next open. Crypto farm only. Not an order."
         : "Nifty futures are allowed as a tactical overlay if daily loss and heat gates are clear. Flatten 15 minutes before close. Not an order.",

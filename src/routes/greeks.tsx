@@ -60,7 +60,6 @@ function GreeksPage() {
           <ButtonLike active={shortGamma} onClick={() => setShortGamma(true)}>
             Short gamma
           </ButtonLike>
-          <Badge tone={report.helps ? "up" : report.hurts ? "down" : "neutral"}>{report.posture} gamma</Badge>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -124,9 +123,13 @@ function GreeksPage() {
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">
             <h2 className="text-sm font-medium">Rehedge path</h2>
-            <ol className="mt-4 space-y-4">
+            <ol className="mt-4 space-y-4" style={{ perspective: "900px" }}>
               {report.steps.map((st) => (
-                <li key={st.label} className="rounded-[16px] border border-border bg-elevated p-4">
+                <li
+                  key={st.label}
+                  className="rounded-[16px] border border-border bg-elevated p-4 transition-transform duration-180 hover:-translate-y-0.5"
+                  style={{ transform: "rotateX(4deg)" }}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">{st.label}</span>
                     <span className="font-mono text-xs text-muted">{st.price.toFixed(1)}</span>

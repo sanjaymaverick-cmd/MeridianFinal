@@ -7,10 +7,15 @@ import { useDesk } from "@/lib/desk-store";
 import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
 import type { MarketState } from "@/lib/meridian/advice";
-import { PromotionStrip } from "@/components/promotion-strip";
+import { PromotionChip } from "@/components/promotion-strip";
 import { explainReason } from "@/lib/meridian/operator-copy";
 import { getPaperBook } from "@/lib/server/desk";
-import { runDeskOp } from "@/components/auto-engine";
+import { paperSend } from "@/lib/desk-ops";
+import { DeskTilt } from "@/components/desk-tilt";
+import { DeskNumber } from "@/components/desk-number";
+import { CobeGlobe } from "@/components/cobe-globe";
+import { nseCashClosed } from "@/lib/meridian/session-lock";
+import { FlashPx } from "@/components/flash-px";
 
 export const Route = createFileRoute("/")({ component: Command });
 
@@ -28,6 +33,7 @@ function Command() {
   const bookPnl = reviews.reduce((a, r) => a + r.pnl, 0);
   const nifty = q.data?.state.nifty ?? ticks.NIFTY ?? 24252;
   const asOf = q.data?.asOf;
+  const closed = nseCashClosed();
 
   return (
     <DeskShell>
@@ -57,21 +63,18 @@ function Command() {
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Nifty" value={nifty.toFixed(1)} sub={pct(q.data?.state.niftyChg ?? 0)} up={(q.data?.state.niftyChg ?? 0) >= 0} />
-          <Stat label="Bank Nifty" value={(q.data?.state.bankNifty ?? ticks.BANKNIFTY ?? 57762).toFixed(0)} sub={pct(q.data?.state.bankChg ?? 0)} up={(q.data?.state.bankChg ?? 0) >= 0} />
-          <Stat label="India VIX" value={(q.data?.state.indiaVix ?? 11.2).toFixed(1)} sub="vol regime" />
+          <Stat tilt symbol="BTC" label="Bitcoin" value={formatPx(q.data?.state.btc ?? ticks.BTC ?? 77205, "USD")} sub={pct(q.data?.state.btcChg ?? 0)} up={(q.data?.state.btcChg ?? 0) >= 0} />
+          <Stat tilt symbol="ETH" label="Ether" value={formatPx(ticks.ETH ?? 0, "USD")} sub="crypto farm" />
+          <Stat tilt label="India VIX" value={(q.data?.state.indiaVix ?? 11.2).toFixed(1)} sub="vol regime" />
           <Stat
+            tilt
             label="Paper P&L"
             value={inr(dailyPnl)}
-            sub={`Paper book · Kite off · ${positions.length} open clips`}
+            sub={`Kite off · ${positions.length} open clips`}
             up={dailyPnl >= 0}
           />
-          <Stat
-            label="Bitcoin"
-            value={formatPx(q.data?.state.btc ?? ticks.BTC ?? 77205, "USD")}
-            sub={pct(q.data?.state.btcChg ?? 0)}
-            up={(q.data?.state.btcChg ?? 0) >= 0}
-          />
+          <Stat label="Nifty" value={nifty.toFixed(1)} sub={closed ? `STALE · ${pct(q.data?.state.niftyChg ?? 0)}` : pct(q.data?.state.niftyChg ?? 0)} up={!closed && (q.data?.state.niftyChg ?? 0) >= 0} />
+          <Stat label="Bank Nifty" value={(q.data?.state.bankNifty ?? ticks.BANKNIFTY ?? 57762).toFixed(0)} sub={closed ? "STALE" : pct(q.data?.state.bankChg ?? 0)} up={!closed && (q.data?.state.bankChg ?? 0) >= 0} />
           <Stat
             label="Gold MCX est."
             value={formatPx(q.data?.state.gold ?? ticks.GOLD ?? 158360)}
@@ -84,15 +87,14 @@ function Command() {
             sub={pct(q.data?.state.usdinrChg ?? 0)}
             up={(q.data?.state.usdinrChg ?? 0) >= 0}
           />
-          <Stat
-            label="Crude MCX est."
-            value={formatPx(q.data?.state.crude ?? ticks.CRUDE ?? 8311)}
-            sub={pct(q.data?.state.crudeChg ?? 0)}
-            up={(q.data?.state.crudeChg ?? 0) >= 0}
-          />
         </section>
 
-        <PromotionStrip meta={paper.data?.meta} />
+        <section className="grid gap-3 lg:grid-cols-[1fr_240px]">
+          <PromotionChip meta={paper.data?.meta} />
+          <div className="hidden justify-center lg:flex">
+            <CobeGlobe />
+          </div>
+        </section>
 
         <section className="grid gap-6 lg:grid-cols-5">
           <div className="rounded-[24px] border border-border bg-surface p-5 lg:col-span-3">
@@ -165,13 +167,15 @@ function Command() {
                       <td className="font-mono">{f.price.toFixed(2)}</td>
                       <td className="text-muted">{explainReason(f.reason)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="text-xs text-muted underline-offset-4 hover:text-fg hover:underline"
-                          onClick={() => void runDeskOp({ type: "flatten", symbol: f.symbol })}
-                        >
-                          Flatten
-                        </button>
+                        {positions.some((p) => p.symbol === f.symbol) ? (
+                          <button
+                            type="button"
+                            className="text-xs text-muted underline-offset-4 hover:text-fg hover:underline"
+                            onClick={() => void paperSend({ type: "flatten", symbol: f.symbol })}
+                          >
+                            Flatten
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -190,17 +194,30 @@ function Stat({
   value,
   sub,
   up,
+  tilt,
+  symbol,
 }: {
   label: string;
   value: string;
   sub: string;
   up?: boolean;
+  tilt?: boolean;
+  symbol?: string;
 }) {
-  return (
-    <div className="rounded-[24px] border border-border bg-surface p-5">
+  const inner = (
+    <div className={tilt ? "p-5" : "rounded-[24px] border border-border bg-surface p-5"}>
       <p className="text-[11px] uppercase tracking-wider text-subtle">{label}</p>
-      <p className="mt-2 font-mono text-2xl tabular-nums">{value}</p>
+      <p className="mt-2 font-mono text-2xl tabular-nums">
+        {symbol ? (
+          <FlashPx symbol={symbol}>
+            <DeskNumber value={value} />
+          </FlashPx>
+        ) : (
+          <DeskNumber value={value} />
+        )}
+      </p>
       <p className={`mt-1 text-xs ${up === undefined ? "text-muted" : up ? "text-up" : "text-down"}`}>{sub}</p>
     </div>
   );
+  return tilt ? <DeskTilt>{inner}</DeskTilt> : inner;
 }

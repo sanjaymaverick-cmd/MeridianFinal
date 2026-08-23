@@ -101,7 +101,7 @@ export function rankFromUniverse(query: string, names: RankInput[]): ResearchRan
       names: [],
       source: "desk",
       emptyNote:
-        "Nothing in the modelled universe matches that question. Try cables, BTC/ETH, gold, or USDINR — or sign in for Grok.",
+        "Nothing in the modelled universe matches that question. Try cables, BTC/ETH, gold, or USDINR.",
     };
   }
 

@@ -9,7 +9,8 @@ import { listResearchHistory, runResearch, type ResearchName } from "@/lib/serve
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { rankResearch } from "@/lib/meridian/research-rank";
 import { runDeskOp } from "@/components/auto-engine";
-import { PromotionStrip } from "@/components/promotion-strip";
+import { PromotionChip } from "@/components/promotion-strip";
+import { paperBlockedReason } from "@/lib/meridian/session-lock";
 import { getPaperBook } from "@/lib/server/desk";
 import { useQuery } from "@tanstack/react-query";
 
@@ -109,7 +110,7 @@ function ResearchPage() {
           </p>
         </div>
 
-        <PromotionStrip meta={paper.data?.meta} />
+        <PromotionChip meta={paper.data?.meta} />
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
           <Textarea value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -130,7 +131,11 @@ function ResearchPage() {
           </Button>
         </div>
 
-        {emptyNote && <p className="text-sm text-warn">{emptyNote}</p>}
+        {emptyNote && (
+          <p className="text-sm text-warn">
+            {emptyNote.replace(/or sign in for Grok\.?/i, user ? "Grok unavailable — desk heuristic." : "or sign in for Grok.")}
+          </p>
+        )}
 
         {names && names.length > 0 && (
           <div className="grid gap-3 md:grid-cols-2">
@@ -149,11 +154,17 @@ function ResearchPage() {
                 {n.next && <p className="mt-2 text-sm">{n.next}</p>}
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <Badge tone="accent">score {n.score.toFixed(1)}</Badge>
-                  <Button size="sm" onClick={() => void runDeskOp({ type: "watch", symbol: n.symbol })}>
+                  <Button
+                    size="sm"
+                    disabled={!!paperBlockedReason(n.symbol)}
+                    onClick={() => void runDeskOp({ type: "watch", symbol: n.symbol })}
+                  >
                     Watch in Auto
                   </Button>
                   <Button size="sm" variant="outline" asChild>
-                    <Link to="/markets">Open on Tape</Link>
+                    <Link to="/markets" search={{ symbol: n.symbol }}>
+                      Open on Tape
+                    </Link>
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => void runDeskOp({ type: "skip", symbol: n.symbol })}>
                     Skip
@@ -163,7 +174,11 @@ function ResearchPage() {
             ))}
           </div>
         )}
-        {source && <p className="text-xs text-subtle">Source: {source}. Not an order.</p>}
+        {source && (
+          <p className="text-xs text-subtle">
+            Source: {source === "Grok" ? "Grok" : user ? "Grok unavailable — desk heuristic" : "desk heuristic"}. Not an order.
+          </p>
+        )}
 
         {history.length > 0 && (
           <div className="rounded-[24px] border border-border bg-surface p-5">

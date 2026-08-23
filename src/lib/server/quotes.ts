@@ -424,7 +424,18 @@ export async function getLiveBook(force = false): Promise<LiveBook> {
   return book;
 }
 
-export async function getHistoryBars(symbol: string, range: "1mo" | "3mo" | "1y" | "5y" = "1y"): Promise<{
+export type HistRange = "1d" | "5d" | "1mo" | "3mo" | "1y" | "5y";
+
+function klineSpec(range: HistRange) {
+  if (range === "1d") return { interval: "5m", limit: 288 };
+  if (range === "5d") return { interval: "15m", limit: 480 };
+  if (range === "1mo") return { interval: "1d", limit: 30 };
+  if (range === "3mo") return { interval: "1d", limit: 90 };
+  if (range === "5y") return { interval: "1d", limit: 1000 };
+  return { interval: "1d", limit: 365 };
+}
+
+export async function getHistoryBars(symbol: string, range: HistRange = "1y"): Promise<{
   symbol: string;
   bars: Bar[];
   source: string;
@@ -434,11 +445,11 @@ export async function getHistoryBars(symbol: string, range: "1mo" | "3mo" | "1y"
   const futPair = map.feed === "binance-fut" ? map.binance : null;
   const pair = (map.feed === "binance" && map.binance) || (futPair && !futPair.includes("_") ? futPair : null) || binancePairOf(symbol);
   if (futPair && futPair.includes("_")) {
-    const limit = range === "1mo" ? 30 : range === "3mo" ? 90 : range === "5y" ? 1000 : 365;
+    const { interval, limit } = klineSpec(range);
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 10000);
     try {
-      const url = `https://dapi.binance.com/dapi/v1/klines?symbol=${futPair}&interval=1d&limit=${limit}`;
+      const url = `https://dapi.binance.com/dapi/v1/klines?symbol=${futPair}&interval=${interval}&limit=${limit}`;
       const res = await fetch(url, { signal: ac.signal, headers: { Accept: "application/json" } });
       if (res.ok) {
         const rows = (await res.json()) as Array<[number, string, string, string, string, string]>;
@@ -459,11 +470,11 @@ export async function getHistoryBars(symbol: string, range: "1mo" | "3mo" | "1y"
     }
   }
   if (pair) {
-    const limit = range === "1mo" ? 30 : range === "3mo" ? 90 : range === "5y" ? 1000 : 365;
+    const { interval, limit } = klineSpec(range);
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 10000);
     try {
-      const url = map.feed === "binance-fut" ? `https://fapi.binance.com/fapi/v1/klines?symbol=${pair}&interval=1d&limit=${limit}` : `${BINANCE_API}/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`;
+      const url = map.feed === "binance-fut" ? `https://fapi.binance.com/fapi/v1/klines?symbol=${pair}&interval=${interval}&limit=${limit}` : `${BINANCE_API}/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`;
       const res = await fetch(url, { signal: ac.signal, headers: { Accept: "application/json" } });
       if (res.ok) {
         const rows = (await res.json()) as Array<[number, string, string, string, string, string]>;
@@ -486,7 +497,8 @@ export async function getHistoryBars(symbol: string, range: "1mo" | "3mo" | "1y"
   if (map.feed === "derived" && map.underlier) {
     return getHistoryBars(map.underlier, range);
   }
-  const raw = await fetchChart(map.yahoo, range);
+  const ySpec = klineSpec(range);
+  const raw = await fetchChart(map.yahoo, range, ySpec.interval);
   if (!raw) return { symbol, bars: [], source: "unavailable", yahoo: map.yahoo };
 
   let usdinr = SNAPSHOT.USDINR ?? 95.7;

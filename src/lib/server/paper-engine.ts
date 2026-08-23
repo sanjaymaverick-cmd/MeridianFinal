@@ -319,7 +319,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 19;
+const ENGINE_REV = 20;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -1046,6 +1046,8 @@ export function resetEngine() {
 
 export type OperatorCmd =
   | { type: "flatten"; symbol: string }
+  | { type: "flatten_all" }
+  | { type: "reverse"; symbol: string }
   | { type: "skip"; symbol: string }
   | { type: "block"; symbol: string }
   | { type: "unblock"; symbol: string }
@@ -1054,13 +1056,24 @@ export type OperatorCmd =
   | { type: "open"; symbol: string; qty?: number; side?: "long" | "short"; sleeve?: DeskSleeve }
   | { type: "hedge"; side: "long" | "short"; qty?: number };
 
-export function operatorAction(cmd: OperatorCmd): PaperBook {
+export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string } {
   const e = getEngine();
   const now = Date.now();
   const bare = (s: string) => s.replace(/^(farm|pnl):/, "");
   if (cmd.type === "skip") {
     const sym = bare(cmd.symbol);
     e.cooldownUntil[sym] = now + 15 * 60 * 1000;
+  } else if (cmd.type === "flatten_all") {
+    for (const p of [...e.positions]) flattenNow(e, p.symbol, now);
+  } else if (cmd.type === "reverse") {
+    const sym = bare(cmd.symbol);
+    const pos = e.positions.find((p) => p.symbol === sym);
+    if (!pos) return { ...snapshotBook(), error: "no_open_clip" };
+    const qty = pos.qty;
+    const next: "long" | "short" = pos.side === "long" ? "short" : "long";
+    flattenNow(e, sym, now);
+    const opened = openNow(e, sym, next, pos.sleeve ?? "farm", qty, now, "reverse_operator");
+    if (opened) return { ...snapshotBook(), error: opened };
   } else if (cmd.type === "block") {
     const sym = bare(cmd.symbol);
     if (!e.blocked.includes(sym)) e.blocked = [...e.blocked, sym];
@@ -1077,7 +1090,8 @@ export function operatorAction(cmd: OperatorCmd): PaperBook {
   } else if (cmd.type === "flatten") {
     flattenNow(e, bare(cmd.symbol), now);
   } else if (cmd.type === "open") {
-    openNow(e, bare(cmd.symbol), cmd.side ?? "long", cmd.sleeve ?? "farm", cmd.qty, now);
+    const err = openNow(e, bare(cmd.symbol), cmd.side ?? "long", cmd.sleeve ?? "farm", cmd.qty, now);
+    if (err) return { ...snapshotBook(), error: err };
   } else if (cmd.type === "hedge") {
     const sym = e.live.NIFTYFUT ? "NIFTYFUT" : "NIFTY";
     openNow(e, sym, cmd.side, "farm", cmd.qty ?? 1, now, "queue_hedge");
@@ -1126,16 +1140,26 @@ function openNow(
   qtyIn: number | undefined,
   now: number,
   reason = "open_operator",
-) {
-  if (e.positions.some((p) => p.symbol === symbol)) return;
+): string | undefined {
+  const clock = sessionClock();
+  const skip = openSkipReason({
+    symbol,
+    sleeve,
+    feed: e.liveFeed[symbol],
+    delayed: e.delayed[symbol],
+    openSession: clock.openSession,
+    positions: e.positions,
+  });
+  if (skip) return skip;
+  if (e.positions.some((p) => p.symbol === symbol)) return "family_open";
   const mid = e.live[symbol] || e.ticks[symbol];
-  if (!(mid > 0)) return;
+  if (!(mid > 0)) return "bad_price";
   const profile = profileOf(sleeve);
   const sizePct = profile.SIZE_FLOOR;
   const cls = clsFor(symbol, e);
   const px = fillFromMid(mid, side === "long" ? "buy" : "sell", cls);
   const qty = qtyIn && qtyIn > 0 ? qtyIn : qtyFor(symbol, px, sizePct, e.ticks);
-  if (qty <= 0) return;
+  if (qty <= 0) return "zero_size";
   const extra = foFields(symbol, e.foMeta[symbol]);
   const pos: Position = {
     symbol,
