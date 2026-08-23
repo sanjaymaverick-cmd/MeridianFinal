@@ -10,8 +10,9 @@ import { inr, pct } from "@/lib/utils";
 import { saveHoldings } from "@/lib/server/desk";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { useQuery } from "@tanstack/react-query";
-import { getMarket } from "@/lib/server/desk";
+import { getMarket, getPaperBook } from "@/lib/server/desk";
 import type { ActionLabel } from "@/lib/meridian/scoring";
+import { blockDeskSymbol } from "@/components/auto-engine";
 
 export const Route = createFileRoute("/portfolio")({ component: PortfolioPage });
 
@@ -26,14 +27,17 @@ function PortfolioPage() {
   const holdings = useDesk((s) => s.holdings);
   const setHoldings = useDesk((s) => s.setHoldings);
   const ticks = useDesk((s) => s.ticks);
+  const positions = useDesk((s) => s.positions);
   const user = useCurrentUser();
   const m = useQuery({ queryKey: ["market"], queryFn: () => getMarket() });
+  const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
   const regime = m.data?.state.regime ?? "Calm";
   const [raw, setRaw] = useState("");
+  const promoted = Boolean(paper.data?.meta?.promoted);
 
   const reviews = useMemo(
-    () => holdings.map((h) => reviewHolding({ ...h, lastPrice: ticks[h.symbol] ?? h.lastPrice }, regime)),
-    [holdings, ticks, regime],
+    () => holdings.map((h) => reviewHolding({ ...h, lastPrice: ticks[h.symbol] ?? h.lastPrice }, regime, promoted)),
+    [holdings, ticks, regime, promoted],
   );
   const invested = reviews.reduce((a, r) => a + r.invested, 0);
   const value = reviews.reduce((a, r) => a + r.value, 0);
@@ -56,21 +60,21 @@ function PortfolioPage() {
       <div className="flex flex-col gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Portfolio</p>
-          <h1 className="mt-1 font-display text-4xl">Buy / Hold / Sell</h1>
+          <h1 className="mt-1 font-display text-4xl">Two ledgers</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Upload a Zerodha-style CSV. Each line is scored with the V1 five-factor composite, V4 meta-probability,
-            and a predictability reading. Reviews always say they are not orders.
+            Imported cash book is your CSV. Paper clip book is the overnight farm. They are not the same. Factor Buy is not a
+            paper-model size while promotion is failed.
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <Kpi label="Invested" value={inr(invested)} />
-          <Kpi label="Mark" value={inr(value)} />
-          <Kpi label="Unrealised" value={inr(value - invested)} up={value - invested >= 0} />
+          <Kpi label="Imported invested" value={inr(invested)} />
+          <Kpi label="Imported mark" value={inr(value)} />
+          <Kpi label="Imported unrealised" value={inr(value - invested)} up={value - invested >= 0} />
         </div>
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
-          <h2 className="text-sm font-medium">Import</h2>
+          <h2 className="text-sm font-medium">Import — cash book</h2>
           <p className="mt-1 text-sm text-muted">
             Headers such as Instrument, Qty., Avg. cost, LTP. Or paste below. Sample is preloaded as Core — Zerodha.
           </p>
@@ -124,8 +128,8 @@ NTPC,40,380,412`)
                 <th className="font-medium">P&L</th>
                 <th className="font-medium">Score</th>
                 <th className="font-medium">Meta</th>
-                <th className="font-medium">Predict</th>
-                <th className="font-medium">Action</th>
+                <th className="font-medium">Factor</th>
+                <th className="font-medium">Auto farm</th>
               </tr>
             </thead>
             <tbody>
@@ -143,13 +147,17 @@ NTPC,40,380,412`)
                     <div className="text-[11px]">{pct(r.pnlPct)}</div>
                   </td>
                   <td className="font-mono">{r.score?.toFixed(2) ?? "—"}</td>
-                  <td className="font-mono">{(r.metaProb * 100).toFixed(0)}%</td>
-                  <td>
-                    <div>{r.predictability}</div>
-                    <div className="text-[11px] text-subtle">{r.strength}</div>
-                  </td>
+                  <td className="font-mono text-xs">{promoted && r.modelApplies ? r.metaLabel : "n/a"}</td>
                   <td>
                     <Badge tone={toneFor(r.action)}>{r.action}</Badge>
+                    {!promoted && (r.action === "Buy" || r.action === "Strong Buy") && (
+                      <div className="text-[11px] text-subtle">Factor only — not model-backed</div>
+                    )}
+                  </td>
+                  <td>
+                    <Button size="sm" variant="ghost" disabled={!user} onClick={() => void blockDeskSymbol(r.symbol, true)}>
+                      Block
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -157,6 +165,29 @@ NTPC,40,380,412`)
           </table>
         </div>
         <p className="text-xs text-subtle">{reviews[0]?.note ?? "Not an order."}</p>
+
+        <div className="rounded-[24px] border border-border bg-surface p-5">
+          <h2 className="text-sm font-medium">Paper clip book</h2>
+          <p className="mt-1 text-sm text-muted">Open farm / PnL clips. Separate from the imported cash book.</p>
+          {positions.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">No paper clips open.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {positions.map((p) => (
+                <li key={p.symbol + p.entryTs} className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="font-mono text-xs">{p.symbol}</span>
+                  <Badge tone="neutral">{p.sleeve ?? "farm"}</Badge>
+                  <span className="text-muted">
+                    {p.qty} @ {p.entryPrice.toFixed(2)}
+                  </span>
+                  <Button size="sm" variant="ghost" disabled={!user} onClick={() => void blockDeskSymbol(p.symbol, true)}>
+                    Block from Auto
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </DeskShell>
   );

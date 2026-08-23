@@ -2,17 +2,24 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DEMO_NIFTY_LEGS, explainScalp, snapshotFromLegs, type OptionLeg } from "@/lib/meridian/greeks";
 import { useDesk } from "@/lib/desk-store";
-import { inr } from "@/lib/utils";
+import { inr, formatIstStamp } from "@/lib/utils";
+import { queueDeskHedge, dismissDeskHedge } from "@/components/auto-engine";
+import { toast } from "sonner";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export const Route = createFileRoute("/greeks")({ component: GreeksPage });
 
 function GreeksPage() {
   const nifty = useDesk((s) => s.ticks.NIFTY ?? 24252);
+  const asOf = useDesk((s) => s.asOf);
+  const { user } = useCurrentUserState();
   const [movePct, setMovePct] = useState(1);
   const [band, setBand] = useState(1);
   const [shortGamma, setShortGamma] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   const legs: OptionLeg[] = useMemo(() => {
     const mark = nifty;
@@ -41,10 +48,11 @@ function GreeksPage() {
       <div className="flex flex-col gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Greeks</p>
-          <h1 className="mt-1 font-display text-4xl">Gamma scalping</h1>
+          <h1 className="mt-1 font-display text-4xl">What-if calculator</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Daily PnL is one-day theta. Gamma Scalping PnL is the textbook ½ Γ (ΔS)² term. Long gamma can help if you
-            keep leftover delta small. Short gamma does the opposite. Reviews only — not an order.
+            Demo / calculator — not the live paper book. Daily PnL is one-day theta. Gamma Scalping PnL is the textbook
+            ½ Γ (ΔS)² term. Marks are a snapshot
+            {asOf ? ` as of ${formatIstStamp(asOf)}` : ""}. Reviews only — not an order.
           </p>
         </div>
 
@@ -56,10 +64,11 @@ function GreeksPage() {
             Short gamma
           </ButtonLike>
           <Badge tone={report.helps ? "up" : report.hurts ? "down" : "neutral"}>{report.posture} gamma</Badge>
+          <Badge tone="warn">Snapshot marks</Badge>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Nifty mark" value={nifty.toFixed(1)} />
+          <Metric label="Nifty mark (snapshot)" value={nifty.toFixed(1)} />
           <Metric label="Delta lots" value={snap.deltaLots.toFixed(2)} />
           <Metric label="Gamma" value={snap.gamma.toFixed(5)} />
           <Metric label="Theta / day" value={inr(snap.theta)} />
@@ -67,9 +76,7 @@ function GreeksPage() {
 
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[24px] border border-border bg-surface p-5">
-            <label className="text-sm font-medium">
-              Assumed move {movePct.toFixed(1)}%
-            </label>
+            <label className="text-sm font-medium">Assumed move {movePct.toFixed(1)}%</label>
             <input
               type="range"
               min={0.3}
@@ -92,11 +99,34 @@ function GreeksPage() {
             <p className="mt-4 text-sm text-muted">{report.dailyPnlLine}</p>
             <p className="mt-2 text-sm text-muted">{report.gammaScalpLine}</p>
             <p className="mt-3 text-sm">{report.suggestion}</p>
-            {report.needsRehedge && (
-              <p className="mt-3 text-sm text-warn">
-                Suggested futures clip: {report.suggestedFuturesLots >= 0 ? "+" : ""}
-                {report.suggestedFuturesLots.toFixed(1)} lots (review only).
-              </p>
+            {report.needsRehedge && !dismissed && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  disabled={!user}
+                  onClick={() => {
+                    void queueDeskHedge(
+                      "NIFTYFUT",
+                      `What-if hedge ${report.suggestedFuturesLots >= 0 ? "+" : ""}${report.suggestedFuturesLots.toFixed(1)} lots. Review on Auto.`,
+                      "greeks",
+                    );
+                    toast.message("Queued on Auto. Paper only — not a live order.");
+                  }}
+                >
+                  Queue paper hedge
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!user}
+                  onClick={() => {
+                    setDismissed(true);
+                    void dismissDeskHedge();
+                  }}
+                >
+                  Dismiss
+                </Button>
+              </div>
             )}
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">

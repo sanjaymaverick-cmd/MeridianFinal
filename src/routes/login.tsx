@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { emailFromDeskId, TEST_DESK_ID } from "@/lib/desk-login";
 import { seedTestDeskUser } from "@/lib/server/seed-test-user";
+import { englishAuthError } from "@/lib/ux-copy";
 
 export const Route = createFileRoute("/login")({
   loader: async () => {
@@ -22,6 +23,7 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   useEffect(() => {
     void seedTestDeskUser();
@@ -39,7 +41,7 @@ function Login() {
         password,
       });
       if (err) {
-        setError(err.message ?? "Sign-in failed");
+        setError(englishAuthError(err.message ?? "Sign-in failed", origin));
         return;
       }
       const token =
@@ -60,7 +62,7 @@ function Login() {
       void getBearerToken();
       await navigate({ to: "/" });
     } catch (ex) {
-      setError(ex instanceof Error ? ex.message : "Sign-in failed");
+      setError(englishAuthError(ex instanceof Error ? ex.message : "Sign-in failed", origin));
     } finally {
       setBusy(false);
     }
@@ -73,7 +75,8 @@ function Login() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Meridian Final</p>
           <h1 className="mt-2 font-display text-4xl leading-none">The desk that holds.</h1>
           <p className="mt-3 text-sm text-muted">
-            Test desk ID {TEST_DESK_ID}. Guest mode still runs the engines without signing in.
+            Test desk ID {TEST_DESK_ID}. Guest mode can watch the tape but cannot Pause, Reset, or change mode on the shared book.
+            Sign in to operate.
           </p>
         </div>
         {authEnabled ? (
@@ -99,6 +102,9 @@ function Login() {
                 />
               </label>
               {error && <p className="text-sm text-down">{error}</p>}
+              <p className="text-[11px] text-subtle">
+                Host {origin || "…"}. localhost and 127.0.0.1 are both allowed on ports 3000 and 8080.
+              </p>
               <Button type="submit" className="w-full" disabled={busy || !id || !password}>
                 {busy ? "Signing in…" : "Sign in to the desk"}
               </Button>
@@ -120,7 +126,7 @@ function Login() {
           <p className="text-sm text-muted">Sign-in is disabled.</p>
         )}
         <Link to="/" className="block text-center text-sm text-muted underline-offset-4 hover:text-fg hover:underline">
-          Back to the desk
+          Continue as guest
         </Link>
       </div>
     </main>

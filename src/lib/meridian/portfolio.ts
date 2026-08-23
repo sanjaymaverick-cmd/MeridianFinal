@@ -21,6 +21,8 @@ export type HoldingReview = HoldingRow & {
   score: number | null;
   action: ActionLabel | "—";
   metaProb: number;
+  metaLabel: string;
+  modelApplies: boolean;
   predictability: number;
   strength: string;
   note: string;
@@ -109,7 +111,7 @@ export function parseHoldingsCsv(text: string): HoldingRow[] {
   return rows;
 }
 
-export function reviewHolding(h: HoldingRow, regime: Regime): HoldingReview {
+export function reviewHolding(h: HoldingRow, regime: Regime, promoted = false): HoldingReview {
   const u = lookup(h.symbol);
   const last = h.lastPrice || u?.last || h.avgCost;
   const invested = h.qty * h.avgCost;
@@ -122,23 +124,31 @@ export function reviewHolding(h: HoldingRow, regime: Regime): HoldingReview {
   const score = compositeScore(parts, regime);
   const action = mapAction(score, regime);
   const clock = sessionClock();
-  const metaProb = predictMetaProb({
-    confidence: (score ?? 5) / 10,
-    confluence: 70 + (score ?? 5),
-    p_success: 0.5 + ((score ?? 5) - 5) / 20,
-    atr_pct: u?.atrPct ?? 0.02,
-    approx_stop_pct: 1.5 * (u?.atrPct ?? 0.02),
-    minutes_since_midnight: clock.minutesSinceMidnight,
-    minutes_to_eod_flatten: Math.max(0, clock.minutesToEod),
-  });
+  const modelApplies = promoted;
+  const metaProb = modelApplies
+    ? predictMetaProb({
+        confidence: (score ?? 5) / 10,
+        confluence: 70 + (score ?? 5),
+        p_success: 0.5 + ((score ?? 5) - 5) / 20,
+        atr_pct: u?.atrPct ?? 0.02,
+        approx_stop_pct: 1.5 * (u?.atrPct ?? 0.02),
+        minutes_since_midnight: clock.minutesSinceMidnight,
+        minutes_to_eod_flatten: Math.max(0, clock.minutesToEod),
+      })
+    : 0;
   const trend = u ? (u.last > u.sma50 ? 1 : 0) + (u.sma20 > u.sma50 ? 1 : 0) : 0;
-  const predictability = Math.round(clamp01(metaProb * 0.7 + trend * 0.12 + (score ?? 5) / 50) * 100);
+  const predictability = modelApplies
+    ? Math.round(clamp01(metaProb * 0.7 + trend * 0.12 + (score ?? 5) / 50) * 100)
+    : Math.round(clamp01((score ?? 5) / 10) * 100);
   const strength =
     predictability >= 70 ? "High" : predictability >= 55 ? "Medium" : predictability >= 40 ? "Low" : "Weak";
-  let note = "Not an order. Review only.";
-  if (action === "Strong Buy" || action === "Buy")
+  let note = "Not an order. Review only. Imported cash book is not the paper clip book.";
+  if (!modelApplies) {
+    note =
+      "Factor label only. Paper model is not promoted — do not add on dips from META. Not an order.";
+  } else if (action === "Strong Buy" || action === "Buy") {
     note = "Tape and factors still support adding on dips. Size with heat. Not an order.";
-  else if (action === "Hold") note = "Keep. Do not chase. Revisit if regime turns Stress. Not an order.";
+  } else if (action === "Hold") note = "Keep. Do not chase. Revisit if regime turns Stress. Not an order.";
   else if (action === "Reduce") note = "Edge is thinning. Trim into strength. Not an order.";
   else if (action === "Sell") note = "Factors no longer pay you to sit. Review an exit plan. Not an order.";
   return {
@@ -151,6 +161,8 @@ export function reviewHolding(h: HoldingRow, regime: Regime): HoldingReview {
     score,
     action,
     metaProb,
+    metaLabel: modelApplies ? `${(metaProb * 100).toFixed(0)}%` : "n/a",
+    modelApplies,
     predictability,
     strength,
     note,

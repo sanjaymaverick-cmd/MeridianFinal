@@ -2,7 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
-import { getMarket } from "@/lib/server/desk";
+import { PromotionStrip } from "@/components/promotion-strip";
+import { getMarket, getPaperBook } from "@/lib/server/desk";
 import { useDesk } from "@/lib/desk-store";
 import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
@@ -13,13 +14,14 @@ export const Route = createFileRoute("/")({ component: Command });
 
 function Command() {
   const q = useQuery({ queryKey: ["market"], queryFn: () => getMarket(), refetchInterval: 12_000 });
+  const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
   const holdings = useDesk((s) => s.holdings);
   const positions = useDesk((s) => s.positions);
   const dailyPnl = useDesk((s) => s.dailyPnl);
   const ticks = useDesk((s) => s.ticks);
   const fills = useDesk((s) => s.fills);
   const regime = (q.data?.state.regime ?? "Calm") as MarketState["regime"];
-  const reviews = holdings.map((h) => reviewHolding({ ...h, lastPrice: ticks[h.symbol] ?? h.lastPrice }, regime));
+  const reviews = holdings.map((h) => reviewHolding({ ...h, lastPrice: ticks[h.symbol] ?? h.lastPrice }, regime, Boolean(paper.data?.meta?.promoted)));
   const bookValue = reviews.reduce((a, r) => a + r.value, 0);
   const bookPnl = reviews.reduce((a, r) => a + r.pnl, 0);
   const nifty = q.data?.state.nifty ?? ticks.NIFTY ?? 24252;
@@ -33,8 +35,8 @@ function Command() {
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Command</p>
             <h1 className="mt-1 font-display text-4xl leading-none md:text-5xl">Multi-asset desk</h1>
             <p className="mt-2 max-w-xl text-sm text-muted">
-              Live Binance USDT + Yahoo NSE/FX/COMEX. Futures/options on Tape are derived. Auto paper. Not an order.
-              Live Kite stays disarmed.
+              Live Binance USDT + Yahoo NSE/FX/COMEX. Futures/options on Tape are derived. Paper only — Kite stays disarmed.
+              Not an order.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -51,6 +53,11 @@ function Command() {
             )}
           </div>
         </section>
+
+        <PromotionStrip meta={paper.data?.meta ?? q.data?.meta} closeStats={paper.data?.closeStats} />
+        {paper.data?.lastDecision && (
+          <p className="text-sm text-muted">{paper.data.lastDecision}</p>
+        )}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Nifty" value={nifty.toFixed(1)} sub={pct(q.data?.state.niftyChg ?? 0)} up={(q.data?.state.niftyChg ?? 0) >= 0} />
@@ -103,7 +110,7 @@ function Command() {
             </div>
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5 lg:col-span-2">
-            <h2 className="mb-4 text-sm font-medium">Imported book</h2>
+            <h2 className="mb-4 text-sm font-medium">Imported cash book</h2>
             <p className="font-mono text-2xl tabular-nums">{inr(bookValue)}</p>
             <p className={`mt-1 text-sm ${bookPnl >= 0 ? "text-up" : "text-down"}`}>{inr(bookPnl)} vs cost</p>
             <ul className="mt-4 space-y-2">
@@ -124,7 +131,7 @@ function Command() {
         <section className="rounded-[24px] border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Latest paper fills</h2>
           {fills.length === 0 ? (
-            <p className="text-sm text-muted">No fills yet. Switch mode to Auto on the Auto page to let the engine work the watchlist.</p>
+            <p className="text-sm text-muted">No fills yet. Start paper when you want clips sent. Signals still scan.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
@@ -150,9 +157,7 @@ function Command() {
                       </td>
                       <td className={f.side === "BUY" ? "text-up" : "text-down"}>{f.side}</td>
                       <td>{f.qty}</td>
-                      <td className="font-mono">
-                        {f.price.toFixed(2)} <span className="text-[11px] text-muted">{formatIstStamp(f.ts)}</span>
-                      </td>
+                      <td className="font-mono">{f.price.toFixed(2)}</td>
                       <td className="text-muted">{f.reason}</td>
                     </tr>
                   ))}
