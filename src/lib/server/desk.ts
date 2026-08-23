@@ -8,6 +8,8 @@ import { seedTestDeskUser } from "@/lib/server/seed-test-user";
 import { getHistoryBars, getLiveBook, overlayName, type LiveQuote } from "@/lib/server/quotes";
 import { listBinanceLive } from "@/lib/server/binance-catalog";
 import { SNAPSHOT } from "@/lib/meridian/tickers";
+import { rankResearch } from "@/lib/meridian/research-rank";
+import { getArtefact } from "@/lib/meridian/artefact";
 import { z } from "zod";
 
 function q(book: Awaited<ReturnType<typeof getLiveBook>>, sym: string, fallback: number) {
@@ -51,9 +53,10 @@ export const getMarket = createServerFn({ method: "GET" }).handler(async () => {
     book.binance?.length
       ? book.binance
       : (await listBinanceLive()).map((r) => ({ symbol: r.symbol, pair: r.pair, last: r.last, chg: r.chg, vol: r.vol }));
+  const art = getArtefact();
   return {
     state,
-    advice: buildAdvice(state),
+    advice: buildAdvice(state, { promoted: art.promoted, n: art.n }),
     quotes,
     names,
     binance,
@@ -61,6 +64,13 @@ export const getMarket = createServerFn({ method: "GET" }).handler(async () => {
     source: book.source,
     ok: book.ok,
     fail: book.fail,
+    meta: {
+      n: art.n,
+      auc: art.auc,
+      hitRate: art.hitRate,
+      promoted: art.promoted,
+      source: art.source,
+    },
   };
 });
 
@@ -84,6 +94,58 @@ export const setPaperFlags = createServerFn({ method: "POST" })
 export const resetPaperBook = createServerFn({ method: "POST" }).handler(async () => {
   const { resetEngine } = await import("@/lib/server/paper-engine");
   return resetEngine();
+});
+
+export const flattenPaperBook = createServerFn({ method: "POST" }).handler(async () => {
+  const { flattenEngine } = await import("@/lib/server/paper-engine");
+  return flattenEngine();
+});
+
+export const flattenPaperClip = createServerFn({ method: "POST" })
+  .validator((input: { symbol: string }) => input)
+  .handler(async ({ data }) => {
+    const { flattenClip } = await import("@/lib/server/paper-engine");
+    return flattenClip(data.symbol);
+  });
+
+export const approvePaperPending = createServerFn({ method: "POST" })
+  .validator((input: { id: string; sizePct?: number }) => input)
+  .handler(async ({ data }) => {
+    const { approvePending } = await import("@/lib/server/paper-engine");
+    return approvePending(data.id, data.sizePct);
+  });
+
+export const skipPaperPending = createServerFn({ method: "POST" })
+  .validator((input: { id: string }) => input)
+  .handler(async ({ data }) => {
+    const { skipPending } = await import("@/lib/server/paper-engine");
+    return skipPending(data.id);
+  });
+
+export const setPaperBlock = createServerFn({ method: "POST" })
+  .validator((input: { symbol: string; blocked: boolean }) => input)
+  .handler(async ({ data }) => {
+    const { setBlocked } = await import("@/lib/server/paper-engine");
+    return setBlocked(data.symbol, data.blocked);
+  });
+
+export const setPaperWatch = createServerFn({ method: "POST" })
+  .validator((input: { symbol: string; watch: boolean }) => input)
+  .handler(async ({ data }) => {
+    const { setWatched } = await import("@/lib/server/paper-engine");
+    return setWatched(data.symbol, data.watch);
+  });
+
+export const queuePaperHedge = createServerFn({ method: "POST" })
+  .validator((input: { symbol: string; note: string; from?: string }) => input)
+  .handler(async ({ data }) => {
+    const { queueHedge } = await import("@/lib/server/paper-engine");
+    return queueHedge(data.symbol, data.note, data.from ?? "greeks");
+  });
+
+export const dismissPaperHedge = createServerFn({ method: "POST" }).handler(async () => {
+  const { dismissHedge } = await import("@/lib/server/paper-engine");
+  return dismissHedge();
 });
 
 export const getPaperSamples = createServerFn({ method: "GET" }).handler(async () => {
@@ -178,7 +240,7 @@ export const runResearch = createServerFn({ method: "POST" })
           {
             role: "system",
             content:
-              "You are Meridian Final's Indian-equity research desk. Return ONLY JSON: {\"names\":[{\"symbol\",\"name\",\"sector\",\"score\",\"why\",\"risk\",\"sleeve\"}]}. Use ONLY symbols from the provided universe. score 0-10. sleeve is Spot|Futures|Options. Keep why/risk to two sentences. Not investment advice. Max 6 names.",
+              "You are Meridian Final's Indian-equity research desk. Return ONLY JSON: {\"names\":[{\"symbol\",\"name\",\"sector\",\"score\",\"why\",\"risk\",\"sleeve\"}],\"reason\":\"\"}. Use ONLY symbols from the provided universe. If the query does not match those names, return {\"names\":[],\"reason\":\"No names in the desk universe match that question.\"}. Never pad with unrelated banks or IT. score 0-10. sleeve is Spot|Futures|Options|Crypto|FX|Commodity. Keep why/risk to two sentences. Not investment advice. Max 6 names.",
           },
           {
             role: "user",
@@ -191,17 +253,25 @@ export const runResearch = createServerFn({ method: "POST" })
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = body.choices?.[0]?.message?.content ?? "";
     const json = extractJson(text);
-    const names = (json?.names ?? []) as ResearchName[];
-    if (!names.length) return heuristicResearch(data.query);
+    const allowed = new Set(UNIVERSE.map((u) => u.symbol));
+    const names = ((json?.names ?? []) as ResearchName[]).filter((n) => allowed.has(n.symbol));
+    if (!names.length) {
+      return {
+        ok: true as const,
+        source: "grok" as const,
+        names: [],
+        reason: json && Array.isArray(json.names) ? "No names in the desk universe match that question. Refusing a canned shortlist." : "Grok returned no matching names.",
+      };
+    }
     const sql = await getSql();
     await sql`
       insert into research_runs (user_id, query, result_json)
       values (${context.userId}, ${data.query}, ${JSON.stringify(names)})
     `;
-    return { ok: true as const, source: "grok" as const, names: names.slice(0, 6) };
+    return { ok: true as const, source: "grok" as const, names: names.slice(0, 6), reason: "Ranked from the desk universe." };
   });
 
-function extractJson(text: string): { names?: ResearchName[] } | null {
+function extractJson(text: string): { names?: ResearchName[]; reason?: string } | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
@@ -213,71 +283,6 @@ function extractJson(text: string): { names?: ResearchName[] } | null {
 }
 
 function heuristicResearch(query: string) {
-  const q = query.toLowerCase();
-  const scored = UNIVERSE.map((u) => {
-    let s = 0;
-    for (const t of u.themes) if (q.includes(t.replace(/-/g, " ")) || q.includes(t)) s += 3;
-    const keys = [
-      "data center",
-      "datacenter",
-      "ai",
-      "cable",
-      "power",
-      "spare",
-      "component",
-      "ems",
-      "cooling",
-      "grid",
-      "bitcoin",
-      "crypto",
-      "gold",
-      "silver",
-      "crude",
-      "copper",
-      "forex",
-      "dollar",
-      "rupee",
-      "yen",
-    ];
-    for (const k of keys)
-      if (
-        q.includes(k) &&
-        u.themes.some(
-          (t) =>
-            t.includes(k.split(" ")[0]!) ||
-            t.includes("ai") ||
-            t.includes("power") ||
-            t.includes("cables") ||
-            t.includes("ems") ||
-            t.includes("crypto") ||
-            t.includes("commodity") ||
-            t.includes("forex"),
-        )
-      )
-        s += 2;
-    if (q.includes("bank") && u.themes.includes("banks")) s += 4;
-    if (q.includes("it") && u.themes.includes("it-services")) s += 3;
-    if ((q.includes("crypto") || q.includes("bitcoin") || q.includes("btc")) && u.assetClass === "crypto") s += 6;
-    if ((q.includes("forex") || q.includes("dollar") || q.includes("rupee") || q.includes("fx")) && u.assetClass === "forex")
-      s += 6;
-    if (
-      (q.includes("gold") || q.includes("crude") || q.includes("silver") || q.includes("commodit") || q.includes("copper")) &&
-      u.assetClass === "commodity"
-    )
-      s += 6;
-    s += u.quality / 4 + u.sentiment / 5;
-    return { u, s };
-  })
-    .sort((a, b) => b.s - a.s)
-    .slice(0, 6)
-    .map(({ u }) => ({
-      symbol: u.symbol,
-      name: u.name,
-      sector: u.sector,
-      score: Math.round((u.quality * 0.5 + u.sentiment * 0.3 + 2) * 10) / 10,
-      why: u.thesis,
-      risk: "Valuation and execution can slip; this is a research shortlist, not an order.",
-      sleeve: u.assetClass === "crypto" ? "Crypto" : u.assetClass === "forex" ? "FX" : u.assetClass === "commodity" ? "Commodity" : "Spot",
-    }));
-  return { ok: true as const, source: "desk" as const, names: scored };
+  const ranked = rankResearch(query, UNIVERSE);
+  return { ok: true as const, source: "desk" as const, names: ranked.names, reason: ranked.reason };
 }

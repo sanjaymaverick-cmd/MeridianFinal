@@ -30,9 +30,56 @@ export type MarketState = {
   source: string;
 };
 
-export function buildAdvice(m: MarketState): AdviceCard[] {
+export function buildAdvice(
+  m: MarketState,
+  meta?: { promoted?: boolean; n?: number },
+): AdviceCard[] {
   const cards: AdviceCard[] = [];
-  if (m.regime === "Stress") {
+  const cashClosed = m.session === "weekend" || m.session === "pre" || m.session === "post";
+  const promoted = Boolean(meta?.promoted);
+
+  if (cashClosed) {
+    cards.push({
+      id: "spot-closed",
+      sleeve: "Spot",
+      stance: "Neutral",
+      title: "Cash session closed",
+      body: "Do not work NSE cash while the session is shut. Overnight paper is crypto-only. Not an order.",
+      urgency: "now",
+    });
+    cards.push({
+      id: "fut-closed",
+      sleeve: "Futures",
+      stance: "Neutral",
+      title: "NSE F&O waits for the open",
+      body: "Index futures and options are not a weekend job. Flatten leftover NSE delta in the cash session. Not an order.",
+      urgency: "watch",
+    });
+    cards.push({
+      id: "crypto-closed",
+      sleeve: "Crypto",
+      stance: "Neutral",
+      title: "Overnight farm is crypto-only",
+      body: "BTC/ETH/SOL paper clips are the night job. This is paper. Kite stays off. Not an order.",
+      urgency: "session",
+    });
+    cards.push({
+      id: "fx-closed",
+      sleeve: "FX",
+      stance: "Neutral",
+      title: "USDINR sits overnight",
+      body: "Rupee pair is a hedge, not a punch, while NSE is shut. Not an order.",
+      urgency: "watch",
+    });
+    cards.push({
+      id: "cmd-closed",
+      sleeve: "Commodity",
+      stance: "Neutral",
+      title: "Gold is ballast",
+      body: "MCX gold can sit. Do not start a new crude clip from a closed cash tape. Not an order.",
+      urgency: "watch",
+    });
+  } else if (m.regime === "Stress") {
     cards.push({
       id: "spot-1",
       sleeve: "Spot",
@@ -87,7 +134,9 @@ export function buildAdvice(m: MarketState): AdviceCard[] {
       sleeve: "Spot",
       stance: "Neutral",
       title: "Hold quality, skip chase",
-      body: "Tape is two-sided. Add only where five-factor score still clears Buy and meta-prob is above 0.55. Not an order.",
+      body: promoted
+        ? "Tape is two-sided. Add only where five-factor score still clears Buy and paper meta is promoted. Not an order."
+        : "Tape is two-sided. Factor Buy is not a paper-model size. Meta is not promoted — do not work a 0.55 gate. Not an order.",
       urgency: "session",
     });
     cards.push({
@@ -134,9 +183,11 @@ export function buildAdvice(m: MarketState): AdviceCard[] {
     cards.push({
       id: "spot-1",
       sleeve: "Spot",
-      stance: "Long",
-      title: "Buy quality on dips",
-      body: "Calm regime. Five-factor Buy names with meta-prob above the 0.55 gate can be worked in cash. Heat still capped. Not an order.",
+      stance: promoted ? "Long" : "Neutral",
+      title: promoted ? "Buy quality on dips" : "Quality sits until promote",
+      body: promoted
+        ? "Calm regime. Five-factor Buy names with a promoted paper model can be worked in cash. Heat still capped. Not an order."
+        : "Calm regime. Five-factor labels can sit. Paper model is not promoted — do not treat Book Buy as model-backed and do not work a 0.55 gate. Keep farming. Not an order.",
       urgency: "session",
     });
     cards.push({

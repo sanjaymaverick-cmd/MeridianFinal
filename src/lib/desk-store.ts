@@ -43,6 +43,7 @@ type DeskState = {
   scan: ScanRow[];
   asOf: number | null;
   source: string;
+  pausedAt: number | null;
   setMode: (m: DeskMode) => void;
   setKilled: (k: boolean) => void;
   setHoldings: (h: HoldingRow[]) => void;
@@ -61,6 +62,7 @@ type DeskState = {
     ticks: TickMap;
     dailyPnl: number;
     scan: ScanRow[];
+    pausedAt?: number | null;
   }) => void;
 };
 
@@ -72,8 +74,8 @@ function seedTicks(): TickMap {
 }
 
 export const useDesk = create<DeskState>((set, get) => ({
-  mode: "auto",
-  killed: false,
+  mode: "advisory",
+  killed: true,
   holdings: DEMO_HOLDINGS,
   positions: [],
   fills: [],
@@ -83,6 +85,7 @@ export const useDesk = create<DeskState>((set, get) => ({
   scan: [],
   asOf: null,
   source: "snapshot",
+  pausedAt: null,
   setMode: (mode) => set({ mode }),
   setKilled: (killed) => set({ killed }),
   setHoldings: (holdings) => set({ holdings }),
@@ -127,5 +130,6 @@ export const useDesk = create<DeskState>((set, get) => ({
       ticks: { ...get().ticks, ...book.ticks },
       dailyPnl: book.dailyPnl,
       scan: book.scan,
+      pausedAt: book.pausedAt ?? (book.killed ? get().pausedAt : null),
     }),
 }));

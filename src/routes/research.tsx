@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/input";
 import { runResearch, type ResearchName } from "@/lib/server/desk";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { UNIVERSE } from "@/lib/meridian/universe";
-import { compositeScore, mapAction } from "@/lib/meridian/scoring";
-import { factorParts } from "@/lib/meridian/universe";
+import { rankResearch } from "@/lib/meridian/research-rank";
+import { watchDeskSymbol, blockDeskSymbol } from "@/components/auto-engine";
 
 export const Route = createFileRoute("/research")({ component: ResearchPage });
 
@@ -20,12 +20,20 @@ const EXAMPLES = [
   "USDINR and G10 dollar pairs as a rupee hedge",
 ];
 
+type Run = {
+  query: string;
+  names: ResearchName[];
+  source: string;
+  reason: string;
+  at: number;
+};
+
 function ResearchPage() {
   const { user, isPending } = useCurrentUserState();
   const [query, setQuery] = useState(EXAMPLES[0]);
   const [busy, setBusy] = useState(false);
-  const [names, setNames] = useState<ResearchName[] | null>(null);
-  const [source, setSource] = useState<string>("");
+  const [history, setHistory] = useState<Run[]>([]);
+  const latest = history[0];
 
   if (isPending) {
     return (
@@ -39,47 +47,30 @@ function ResearchPage() {
     setBusy(true);
     try {
       if (!user) {
-        const q = query.toLowerCase();
-        const ranked = UNIVERSE.filter(
-          (u) =>
-            u.themes.some((t) => q.includes(t.replace(/-/g, " "))) ||
-            q.includes("data") ||
-            q.includes("ai") ||
-            q.includes("bank") ||
-            q.includes("power") ||
-            q.includes("crypto") ||
-            q.includes("bitcoin") ||
-            q.includes("gold") ||
-            q.includes("forex") ||
-            q.includes("dollar") ||
-            q.includes("crude") ||
-            q.includes("copper"),
-        )
-          .slice(0, 6)
-          .map((u) => ({
-            symbol: u.symbol,
-            name: u.name,
-            sector: u.sector,
-            score: u.quality,
-            why: u.thesis,
-            risk: "Guest shortlist from the in-desk universe. Sign in for Grok research. Not an order.",
-            sleeve: "Spot",
-          }));
-        setNames(ranked.length ? ranked : UNIVERSE.slice(0, 6).map((u) => ({
-          symbol: u.symbol,
-          name: u.name,
-          sector: u.sector,
-          score: u.quality,
-          why: u.thesis,
-          risk: "Not an order.",
-          sleeve: "Spot",
-        })));
-        setSource("desk");
+        const ranked = rankResearch(query, UNIVERSE);
+        setHistory((h) => [
+          {
+            query,
+            names: ranked.names,
+            source: "desk heuristic",
+            reason: ranked.reason,
+            at: Date.now(),
+          },
+          ...h,
+        ].slice(0, 8));
         return;
       }
       const res = await runResearch({ data: { query } });
-      setNames(res.names);
-      setSource(res.source);
+      setHistory((h) => [
+        {
+          query,
+          names: res.names,
+          source: res.source === "grok" ? "grok" : "desk heuristic",
+          reason: res.reason ?? "Ranked from the desk universe.",
+          at: Date.now(),
+        },
+        ...h,
+      ].slice(0, 8));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Research failed");
     } finally {
@@ -89,14 +80,13 @@ function ResearchPage() {
 
   return (
     <DeskShell>
-      {!user ? null : <span className="sr-only">signed in</span>}
       <div className="flex flex-col gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Research</p>
           <h1 className="mt-1 font-display text-4xl">Ask the desk</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Natural-language query over the NSE universe Meridian actually models. Signed-in sessions call Grok.
-            Guests get the same ranked shortlist from the local book. Always a review.
+            Natural-language query over the universe Meridian actually models. Mismatched questions return zero names — never a
+            canned six-pack. Guests get a labelled heuristic. Signed-in sessions call Grok when a key is set.
           </p>
         </div>
 
@@ -119,35 +109,62 @@ function ResearchPage() {
           </Button>
         </div>
 
-        {names && (
-          <div className="grid gap-3 md:grid-cols-2">
-            {names.map((n) => {
-              const u = UNIVERSE.find((x) => x.symbol === n.symbol);
-              const action = u ? mapAction(compositeScore(factorParts(u), "Calm"), "Calm") : "—";
-              return (
-                <article key={n.symbol} className="rounded-[24px] border border-border bg-surface p-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-mono text-xs text-muted">{n.symbol}</p>
-                      <h2 className="text-lg font-medium">{n.name}</h2>
+        {latest && (
+          <div>
+            <p className="text-xs text-subtle">
+              Source: {latest.source}. {latest.reason} Not an order.
+            </p>
+            {latest.names.length === 0 ? (
+              <p className="mt-3 rounded-[24px] border border-border bg-surface p-5 text-sm text-muted">{latest.reason}</p>
+            ) : (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {latest.names.map((n) => (
+                  <article key={n.symbol} className="rounded-[24px] border border-border bg-surface p-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="font-mono text-xs text-muted">{n.symbol}</p>
+                        <h2 className="text-lg font-medium">{n.name}</h2>
+                      </div>
+                      <Badge tone="neutral">{n.sleeve}</Badge>
                     </div>
-                    <Badge tone="neutral">{n.sleeve}</Badge>
-                  </div>
-                  <p className="mt-1 text-xs uppercase tracking-wider text-subtle">{n.sector}</p>
-                  <p className="mt-3 text-sm leading-relaxed text-muted">{n.why}</p>
-                  <p className="mt-2 text-sm text-subtle">{n.risk}</p>
-                  <div className="mt-4 flex items-center gap-2">
-                    <Badge tone="accent">score {n.score.toFixed(1)}</Badge>
-                    <Badge tone={action === "Buy" || action === "Strong Buy" ? "up" : "neutral"}>{action}</Badge>
-                  </div>
-                </article>
-              );
-            })}
+                    <p className="mt-1 text-xs uppercase tracking-wider text-subtle">{n.sector}</p>
+                    <p className="mt-3 text-sm leading-relaxed text-muted">{n.why}</p>
+                    <p className="mt-2 text-sm text-subtle">{n.risk}</p>
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <Badge tone="accent">score {n.score.toFixed(1)}</Badge>
+                      <Badge tone="neutral">{latest.source}</Badge>
+                      <Button size="sm" variant="outline" disabled={!user} onClick={() => void watchDeskSymbol(n.symbol, true)}>
+                        Watch
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={!user} onClick={() => void blockDeskSymbol(n.symbol, true)}>
+                        Ignore
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-[11px] text-subtle">Next: Watch to surface on Auto, or Ignore to block the farm.</p>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {source && <p className="text-xs text-subtle">Source: {source}. Not an order.</p>}
+
+        {history.length > 1 && (
+          <div>
+            <h2 className="text-sm font-medium">Earlier runs</h2>
+            <ol className="mt-3 space-y-2">
+              {history.slice(1).map((r) => (
+                <li key={r.at} className="rounded-[16px] border border-border bg-surface px-4 py-3 text-sm">
+                  <p className="text-muted">{r.query}</p>
+                  <p className="mt-1 text-xs text-subtle">
+                    {r.source} · {r.names.length} names · {r.reason}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         {!user && (
-          <p className="text-xs text-subtle">Sign in to persist runs and route the query through Grok.</p>
+          <p className="text-xs text-subtle">Guest heuristic — not Grok. Sign in to persist runs.</p>
         )}
       </div>
     </DeskShell>
