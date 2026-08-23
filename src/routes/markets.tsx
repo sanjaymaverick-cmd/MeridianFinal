@@ -9,6 +9,8 @@ import { getHistory, getMarket } from "@/lib/server/desk";
 import { UNIVERSE, assetClassOf } from "@/lib/meridian/universe";
 import { useDesk } from "@/lib/desk-store";
 import { formatIst, formatPx, pct } from "@/lib/utils";
+import { runDeskOp } from "@/components/auto-engine";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/markets")({ component: MarketsPage });
 
@@ -23,6 +25,7 @@ function MarketsPage() {
   const [pick, setPick] = useState("BTC");
   const [range, setRange] = useState<"1mo" | "3mo" | "1y" | "5y">("1y");
   const [q, setQ] = useState("");
+  const [paperQty, setPaperQty] = useState("1");
 
   const hist = useQuery({
     queryKey: ["history", pick, range],
@@ -186,6 +189,30 @@ function MarketsPage() {
               )}
             </div>
             <p className="mt-2 text-[11px] text-subtle">{hist.data?.source ?? source}. Not an order.</p>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <label className="text-xs text-subtle">
+                Qty
+                <input
+                  className="ml-2 h-11 w-24 rounded-[8px] border border-border bg-elevated px-2 font-mono text-sm"
+                  value={paperQty}
+                  onChange={(e) => setPaperQty(e.target.value)}
+                />
+              </label>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const qty = Number(paperQty);
+                  if (!(qty > 0)) {
+                    toast.error("Qty must be positive");
+                    return;
+                  }
+                  void runDeskOp({ type: "open", symbol: pick, qty, side: "long", sleeve: "farm" });
+                  toast.message(`Papered ${qty} ${pick}. Kite stays off.`);
+                }}
+              >
+                Paper this qty
+              </Button>
+            </div>
           </div>
         </section>
       </div>

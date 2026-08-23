@@ -2,6 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { runDeskOp } from "@/components/auto-engine";
+import { toast } from "sonner";
 import { DEMO_NIFTY_LEGS, explainScalp, snapshotFromLegs, type OptionLeg } from "@/lib/meridian/greeks";
 import { useDesk } from "@/lib/desk-store";
 import { inr } from "@/lib/utils";
@@ -43,9 +46,11 @@ function GreeksPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Greeks</p>
           <h1 className="mt-1 font-display text-4xl">Gamma scalping</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Daily PnL is one-day theta. Gamma Scalping PnL is the textbook ½ Γ (ΔS)² term. Long gamma can help if you
-            keep leftover delta small. Short gamma does the opposite. Reviews only — not an order.
+            Demo book — not your live paper clips. Daily PnL is one-day theta. Gamma Scalping PnL is the textbook ½ Γ
+            (ΔS)² term. Long gamma can help if you keep leftover delta small. Short gamma does the opposite. Reviews
+            only — not an order.
           </p>
+          <p className="mt-2 text-xs text-warn">Teaching surface on a Nifty demo straddle. Queue hedge sends a paper clip, not Kite.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -93,10 +98,28 @@ function GreeksPage() {
             <p className="mt-2 text-sm text-muted">{report.gammaScalpLine}</p>
             <p className="mt-3 text-sm">{report.suggestion}</p>
             {report.needsRehedge && (
-              <p className="mt-3 text-sm text-warn">
-                Suggested futures clip: {report.suggestedFuturesLots >= 0 ? "+" : ""}
-                {report.suggestedFuturesLots.toFixed(1)} lots (review only).
-              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <p className="w-full text-sm text-warn">
+                  Suggested futures clip: {report.suggestedFuturesLots >= 0 ? "+" : ""}
+                  {report.suggestedFuturesLots.toFixed(1)} lots (review only).
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    void runDeskOp({
+                      type: "hedge",
+                      side: report.suggestedFuturesLots >= 0 ? "long" : "short",
+                      qty: Math.max(1, Math.abs(report.suggestedFuturesLots)),
+                    });
+                    toast.message("Queued a paper hedge. Kite stays off.");
+                  }}
+                >
+                  Queue paper hedge
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => toast.message("Dismissed. No clip sent.")}>
+                  Dismiss
+                </Button>
+              </div>
             )}
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">

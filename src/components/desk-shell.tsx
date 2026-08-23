@@ -9,6 +9,9 @@ import { useDesk } from "@/lib/desk-store";
 import { cn } from "@/lib/utils";
 import { AutoEngine, setDeskKilled, setDeskMode } from "@/components/auto-engine";
 import { QuotesHydrator } from "@/components/quotes-hydrator";
+import { MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import { toast } from "sonner";
+import { useState } from "react";
 
 const NAV = [
   { to: "/", label: "Command", icon: LayoutDashboard },
@@ -24,6 +27,29 @@ export function DeskShell({ children }: { children: ReactNode }) {
   const { user, isPending } = useCurrentUserState();
   const mode = useDesk((s) => s.mode);
   const killed = useDesk((s) => s.killed);
+  const [haltAsk, setHaltAsk] = useState(false);
+  const guest = !isPending && !user;
+  const canDrive = !guest;
+
+  function onMode(next: typeof mode) {
+    if (!canDrive) {
+      toast.message("Sign in to change mode on the shared book.");
+      return;
+    }
+    void setDeskMode(next);
+  }
+
+  function onHalt() {
+    if (!canDrive) {
+      toast.message("Sign in to halt the shared book.");
+      return;
+    }
+    if (!killed) {
+      setHaltAsk(true);
+      return;
+    }
+    void setDeskKilled(false);
+  }
 
   return (
     <div className="min-h-dvh bg-bg text-fg">
@@ -53,38 +79,64 @@ export function DeskShell({ children }: { children: ReactNode }) {
             })}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <Badge tone={killed ? "down" : mode === "auto" ? "up" : mode === "paper" ? "warn" : "neutral"}>
-              {killed ? "Killed" : mode}
+            <Badge tone={killed ? "down" : mode === "auto" || mode === "paper" ? "warn" : "neutral"}>
+              {killed ? "Halted" : mode === "advisory" ? "signals" : "paper"}
             </Badge>
-            <Button size="sm" variant={killed ? "outline" : "danger"} onClick={() => void setDeskKilled(!killed)}>
-              {killed ? "Arm" : "Kill"}
+            <Button
+              size="sm"
+              variant={killed ? "outline" : "danger"}
+              disabled={guest}
+              title={guest ? "Sign in to halt" : killed ? "Resume paper" : "Halt new risk and stops"}
+              onClick={onHalt}
+            >
+              {killed ? "Resume paper" : "Halt"}
             </Button>
             <select
               aria-label="Desk mode"
-              className="hidden h-9 rounded-[8px] border border-border bg-elevated px-2 text-xs text-fg md:block"
+              disabled={guest}
+              className="h-9 min-h-11 rounded-[8px] border border-border bg-elevated px-2 text-xs text-fg md:min-h-9"
               value={mode}
-              onChange={(e) => void setDeskMode(e.target.value as typeof mode)}
+              onChange={(e) => onMode(e.target.value as typeof mode)}
             >
-              <option value="advisory">Advisory</option>
-              <option value="paper">Paper</option>
-              <option value="auto">Auto</option>
+              {MODE_CHIPS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
             </select>
             {isPending ? (
               <div className="size-8 animate-pulse rounded-full bg-elevated" />
             ) : user ? (
               <UserButton />
             ) : (
-              <Link
-                to="/login"
-                className="text-sm text-muted underline-offset-4 hover:text-fg hover:underline"
-              >
+              <Link to="/login" className="text-sm text-muted underline-offset-4 hover:text-fg hover:underline">
                 Sign in
               </Link>
             )}
           </div>
         </div>
+        {haltAsk && (
+          <div className="border-t border-border bg-elevated px-4 py-3 md:px-6">
+            <p className="text-sm">Halt the paper engine? Open clips stay. Stops pause. This is not live Kite.</p>
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  setHaltAsk(false);
+                  void setDeskKilled(true);
+                }}
+              >
+                Halt paper
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setHaltAsk(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </header>
-      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 md:px-6 md:pb-10">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-4 pb-28 pt-6 md:px-6 md:pb-10">{children}</main>
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-bg/95 md:hidden">
         {NAV.map((n) => {
           const active = n.to === "/" ? pathname === "/" : pathname.startsWith(n.to);

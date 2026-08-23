@@ -29,6 +29,9 @@ export type ScanRow = {
   reason: string;
   metaProb: number;
   px: number;
+  sleeve?: "farm" | "pnl";
+  sizePct?: number;
+  pending?: boolean;
 };
 
 type DeskState = {
@@ -72,7 +75,7 @@ function seedTicks(): TickMap {
 }
 
 export const useDesk = create<DeskState>((set, get) => ({
-  mode: "auto",
+  mode: "paper",
   killed: false,
   holdings: DEMO_HOLDINGS,
   positions: [],

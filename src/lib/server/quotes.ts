@@ -9,6 +9,7 @@ import {
   isoDate,
   nextNseMonthlyExpiry,
   nextNseWeeklyExpiry,
+  nextFridayExpiry,
   daysToExpiry,
 } from "@/lib/meridian/fo-contracts";
 
@@ -215,7 +216,6 @@ function applyDerived(quotes: Record<string, LiveQuote>) {
   const idxVol = Math.max(0.08, vix / 100);
   const weekly = nextNseWeeklyExpiry();
   const monthly = nextNseMonthlyExpiry();
-  const days = daysToExpiry(isoDate(weekly));
   for (const u of UNIVERSE) {
     const map = yahooFor(u.symbol);
     if (map.feed !== 'derived' || !map.underlier) continue;
@@ -246,11 +246,18 @@ function applyDerived(quotes: Record<string, LiveQuote>) {
       } satisfies LiveQuote;
       quotes[u.symbol] = fut;
     } else if (map.kind === 'options') {
+      const undName = map.underlier;
+      const cryptoUnd = undName === 'BTC' || undName === 'ETH' || undName === 'SOL';
       const right: 'CE' | 'PE' = u.symbol.endsWith('PE') ? 'PE' : 'CE';
-      const sigma = map.underlier === 'BTC' || map.underlier === 'ETH' ? 0.55 : map.underlier.includes('NIFTY') ? idxVol : 0.28;
-      const strike = atmStrike(spot, map.underlier);
-      const prem = bsPremium(spot, strike, sigma, days, right, map.underlier === "BTC" || map.underlier === "ETH" ? 0 : 0.065);
-      const c = formatFoOption(map.underlier, weekly, strike, right);
+      const sigma = cryptoUnd ? 0.55 : undName.includes('NIFTY') ? idxVol : 0.28;
+      const strike = atmStrike(spot, undName);
+      const exp = cryptoUnd ? nextFridayExpiry() : weekly;
+      const dte = daysToExpiry(isoDate(exp));
+      const prem = bsPremium(spot, strike, sigma, dte, right, cryptoUnd ? 0 : 0.065);
+      const c = formatFoOption(undName, exp, strike, right);
+      const liveBn = Object.values(quotes).some(
+        (q) => q.source.startsWith("Binance option") && (q.symbol.startsWith(undName + " ") || (q.contract ?? "").startsWith(undName)),
+      );
       const row: LiveQuote = {
         symbol: u.symbol,
         last: prem,
@@ -263,17 +270,20 @@ function applyDerived(quotes: Record<string, LiveQuote>) {
         rsi: 50,
         atrPct: 0.12,
         yahoo: map.yahoo,
-        source: delayed
-          ? 'delayed ATM model ' + c.symbol + ' - not an exchange print'
-          : 'ATM model ' + c.symbol + ' - not an exchange print',
+        source: cryptoUnd
+          ? 'crypto ATM model ' + c.symbol + ' - not an exchange print'
+          : delayed
+            ? 'delayed ATM model ' + c.symbol + ' - not an exchange print'
+            : 'ATM model ' + c.symbol + ' - not an exchange print',
         expiry: c.expiry,
         strike,
         right,
-        delayed,
+        delayed: cryptoUnd ? false : delayed,
         contract: c.symbol,
       };
       quotes[u.symbol] = row;
-      if (!quotes[c.symbol]) quotes[c.symbol] = { ...row, symbol: c.symbol };
+      if (!cryptoUnd && !quotes[c.symbol]) quotes[c.symbol] = { ...row, symbol: c.symbol };
+      if (cryptoUnd && !liveBn && !quotes[c.symbol]) quotes[c.symbol] = { ...row, symbol: c.symbol };
     }
   }
 }

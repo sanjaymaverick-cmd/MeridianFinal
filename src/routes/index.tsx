@@ -6,13 +6,17 @@ import { getMarket } from "@/lib/server/desk";
 import { useDesk } from "@/lib/desk-store";
 import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
-import { PAPER_BUDGET } from "@/lib/meridian/decision";
 import type { MarketState } from "@/lib/meridian/advice";
+import { PromotionStrip } from "@/components/promotion-strip";
+import { explainReason } from "@/lib/meridian/operator-copy";
+import { getPaperBook } from "@/lib/server/desk";
+import { runDeskOp } from "@/components/auto-engine";
 
 export const Route = createFileRoute("/")({ component: Command });
 
 function Command() {
   const q = useQuery({ queryKey: ["market"], queryFn: () => getMarket(), refetchInterval: 12_000 });
+  const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
   const holdings = useDesk((s) => s.holdings);
   const positions = useDesk((s) => s.positions);
   const dailyPnl = useDesk((s) => s.dailyPnl);
@@ -56,7 +60,12 @@ function Command() {
           <Stat label="Nifty" value={nifty.toFixed(1)} sub={pct(q.data?.state.niftyChg ?? 0)} up={(q.data?.state.niftyChg ?? 0) >= 0} />
           <Stat label="Bank Nifty" value={(q.data?.state.bankNifty ?? ticks.BANKNIFTY ?? 57762).toFixed(0)} sub={pct(q.data?.state.bankChg ?? 0)} up={(q.data?.state.bankChg ?? 0) >= 0} />
           <Stat label="India VIX" value={(q.data?.state.indiaVix ?? 11.2).toFixed(1)} sub="vol regime" />
-          <Stat label="Paper P&L" value={inr(dailyPnl)} sub={`${positions.length} open · ${inr(PAPER_BUDGET)} budget`} up={dailyPnl >= 0} />
+          <Stat
+            label="Paper P&L"
+            value={inr(dailyPnl)}
+            sub={`Paper book · Kite off · ${positions.length} open clips`}
+            up={dailyPnl >= 0}
+          />
           <Stat
             label="Bitcoin"
             value={formatPx(q.data?.state.btc ?? ticks.BTC ?? 77205, "USD")}
@@ -82,6 +91,8 @@ function Command() {
             up={(q.data?.state.crudeChg ?? 0) >= 0}
           />
         </section>
+
+        <PromotionStrip meta={paper.data?.meta} />
 
         <section className="grid gap-6 lg:grid-cols-5">
           <div className="rounded-[24px] border border-border bg-surface p-5 lg:col-span-3">
@@ -136,6 +147,7 @@ function Command() {
                     <th className="font-medium">Qty</th>
                     <th className="font-medium">Price</th>
                     <th className="font-medium">Reason</th>
+                    <th className="font-medium"> </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,10 +162,17 @@ function Command() {
                       </td>
                       <td className={f.side === "BUY" ? "text-up" : "text-down"}>{f.side}</td>
                       <td>{f.qty}</td>
-                      <td className="font-mono">
-                        {f.price.toFixed(2)} <span className="text-[11px] text-muted">{formatIstStamp(f.ts)}</span>
+                      <td className="font-mono">{f.price.toFixed(2)}</td>
+                      <td className="text-muted">{explainReason(f.reason)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="text-xs text-muted underline-offset-4 hover:text-fg hover:underline"
+                          onClick={() => void runDeskOp({ type: "flatten", symbol: f.symbol })}
+                        >
+                          Flatten
+                        </button>
                       </td>
-                      <td className="text-muted">{f.reason}</td>
                     </tr>
                   ))}
                 </tbody>

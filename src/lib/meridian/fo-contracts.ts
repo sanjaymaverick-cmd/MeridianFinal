@@ -247,6 +247,17 @@ export const OPTION_STUBS = new Set([
   "BTCPE",
 ]);
 
+/** Spot, perp, and options on the same coin share one farm slot. */
+export function cryptoFamily(sym: string): string | null {
+  const fo = parseFo(sym);
+  if (fo?.underlier === "BTC" || fo?.underlier === "ETH" || fo?.underlier === "SOL") return fo.underlier;
+  const u = sym.toUpperCase();
+  if (u === "BTC" || u.startsWith("BTC")) return "BTC";
+  if (u === "ETH" || u.startsWith("ETH")) return "ETH";
+  if (u === "SOL" || u.startsWith("SOL")) return "SOL";
+  return null;
+}
+
 /** INR listed F&O (NSE/BSE/MCX) — cash session only. Crypto perps/options stay 24/7. */
 export function isNseFo(sym: string): boolean {
   if (isCryptoFo(sym)) return false;

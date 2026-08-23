@@ -30,8 +30,10 @@ export type MarketState = {
   source: string;
 };
 
-export function buildAdvice(m: MarketState): AdviceCard[] {
+export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): AdviceCard[] {
   const cards: AdviceCard[] = [];
+  const promoted = !!ctx?.promoted;
+  const weekend = m.session === "weekend" || m.session === "pre" || m.session === "post";
   if (m.regime === "Stress") {
     cards.push({
       id: "spot-1",
@@ -136,7 +138,9 @@ export function buildAdvice(m: MarketState): AdviceCard[] {
       sleeve: "Spot",
       stance: "Long",
       title: "Buy quality on dips",
-      body: "Calm regime. Five-factor Buy names with meta-prob above the 0.55 gate can be worked in cash. Heat still capped. Not an order.",
+      body: promoted
+        ? "Calm regime. Five-factor Buy names with meta above 0.55 can be worked in cash. Heat still capped. Not an order."
+        : "Calm tape, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only. Not an order.",
       urgency: "session",
     });
     cards.push({
@@ -144,7 +148,9 @@ export function buildAdvice(m: MarketState): AdviceCard[] {
       sleeve: "Futures",
       stance: "Long",
       title: "Index longs only with a stop",
-      body: "Nifty futures are allowed as a tactical overlay if daily loss and heat gates are clear. Flatten 15 minutes before close. Not an order.",
+      body: weekend
+        ? "Cash session is closed. No NSE futures overlay until the next open. Crypto farm only. Not an order."
+        : "Nifty futures are allowed as a tactical overlay if daily loss and heat gates are clear. Flatten 15 minutes before close. Not an order.",
       urgency: "watch",
     });
     cards.push({

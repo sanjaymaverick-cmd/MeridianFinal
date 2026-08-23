@@ -10,8 +10,10 @@ import { inr, pct } from "@/lib/utils";
 import { saveHoldings } from "@/lib/server/desk";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { useQuery } from "@tanstack/react-query";
-import { getMarket } from "@/lib/server/desk";
+import { getMarket, getPaperBook } from "@/lib/server/desk";
 import type { ActionLabel } from "@/lib/meridian/scoring";
+import { runDeskOp } from "@/components/auto-engine";
+import { PromotionStrip } from "@/components/promotion-strip";
 
 export const Route = createFileRoute("/portfolio")({ component: PortfolioPage });
 
@@ -28,6 +30,8 @@ function PortfolioPage() {
   const ticks = useDesk((s) => s.ticks);
   const user = useCurrentUser();
   const m = useQuery({ queryKey: ["market"], queryFn: () => getMarket() });
+  const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
+  const promoted = !!paper.data?.meta?.promoted;
   const regime = m.data?.state.regime ?? "Calm";
   const [raw, setRaw] = useState("");
 
@@ -62,6 +66,8 @@ function PortfolioPage() {
             and a predictability reading. Reviews always say they are not orders.
           </p>
         </div>
+
+        <PromotionStrip meta={paper.data?.meta} />
 
         <div className="grid gap-4 md:grid-cols-3">
           <Kpi label="Invested" value={inr(invested)} />
@@ -126,6 +132,7 @@ NTPC,40,380,412`)
                 <th className="font-medium">Meta</th>
                 <th className="font-medium">Predict</th>
                 <th className="font-medium">Action</th>
+                <th className="font-medium"> </th>
               </tr>
             </thead>
             <tbody>
@@ -143,20 +150,36 @@ NTPC,40,380,412`)
                     <div className="text-[11px]">{pct(r.pnlPct)}</div>
                   </td>
                   <td className="font-mono">{r.score?.toFixed(2) ?? "—"}</td>
-                  <td className="font-mono">{(r.metaProb * 100).toFixed(0)}%</td>
-                  <td>
-                    <div>{r.predictability}</div>
-                    <div className="text-[11px] text-subtle">{r.strength}</div>
+                  <td className="font-mono text-xs">
+                    {promoted ? `${(r.metaProb * 100).toFixed(0)}%` : "n/a — not promoted"}
                   </td>
                   <td>
-                    <Badge tone={toneFor(r.action)}>{r.action}</Badge>
+                    <div>{promoted ? r.predictability : "—"}</div>
+                    <div className="text-[11px] text-subtle">{promoted ? r.strength : "five-factor only"}</div>
+                  </td>
+                  <td>
+                    <Badge tone={promoted ? toneFor(r.action) : "neutral"}>{promoted ? r.action : `Factor ${r.action}`}</Badge>
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap gap-1 py-2 pr-3">
+                      <Button size="sm" variant="outline" onClick={() => void runDeskOp({ type: "watch", symbol: r.symbol })}>
+                        Paper clip
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void runDeskOp({ type: "block", symbol: r.symbol })}>
+                        Block
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-subtle">{reviews[0]?.note ?? "Not an order."}</p>
+        <p className="text-xs text-subtle">
+          {promoted
+            ? (reviews[0]?.note ?? "Not an order.")
+            : "Five-factor likes some names. The paper model is not promoted — do not add size on meta. Not an order."}
+        </p>
       </div>
     </DeskShell>
   );
