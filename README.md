@@ -1,11 +1,15 @@
 # Meridian Final
 
-Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
+**Canonical product.** V2 Greeks + V3 auto desk + V4 meta-label, in one paper desk.
 
-- **Signals / Paper / Paper auto-send** — ₹10L mock book. Signals proposes (Would BUY). Paper waits for Approve / Skip. Paper auto-send fills on its own. Live is locked.
+Paper first. Live Kite stays off. Mock book ₹10,00,000.
+
+Older trees are **frozen**. Do not patch V3/V4. Do not use the MeridianV4 repo.
+
+- **Signals / Paper / Paper auto-send** — Signals proposes (Would BUY). Paper waits for Approve / Skip / Size. Paper auto-send fills on its own. Live is locked.
 - **Tape** — NSE, FX, COMEX/MCX, every Binance USDT pair
 - **Book** — CSV cash ledger, separate from the paper clip book. META is n/a until the paper model promotes.
-- **Greeks** — what-if calculator, not the live paper book
+- **Greeks** — what-if calculator (V2), not the live paper book
 - **Research** — natural-language names, or empty if the query does not match
 - **Advice** — spot / futures / options cards that respect session and promotion
 
@@ -13,6 +17,11 @@ Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 
 Test login: `WQ3137` / `Test@password`
 
-Python engines: `meridian_final/`. Spec: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md). UX: [docs/UX_BACKLOG.md](docs/UX_BACKLOG.md)
+| Doc | |
+|-----|--|
+| Lineage (V1→Final) | [docs/LINEAGE.md](docs/LINEAGE.md) |
+| Build spec | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) |
+| UX contract | [docs/UX_BACKLOG.md](docs/UX_BACKLOG.md) |
+| Python math ports | `meridian_final/` |
 
 Kite keys never belong in git. This is personal software. You can lose the whole book. Nothing here is an order.

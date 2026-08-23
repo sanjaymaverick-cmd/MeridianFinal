@@ -1,9 +1,10 @@
 # Meridian Final — Build Master Spec
 
 **Last updated:** 23 Aug 2026  
-**Repos:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
-**Lineage:** V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label  
-**Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees.
+**Canonical repo:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
+**Canonical product:** Meridian Final = V2 Greeks + V3 auto desk + V4 meta-label, one paper desk  
+**Lineage:** [LINEAGE.md](LINEAGE.md) — V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label → **this repo**  
+**Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees. Do not use the MeridianV4 GitHub repo as a working tree.
 
 ---
 
