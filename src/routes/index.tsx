@@ -135,7 +135,7 @@ function Command() {
         <section className="rounded-[24px] border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Latest paper fills</h2>
           {fills.length === 0 ? (
-            <p className="text-sm text-muted">No fills yet. Switch mode to Auto on the Auto page to let the engine work the watchlist.</p>
+            <p className="text-sm text-muted">No fills yet. Set mode to Paper or Auto (Halt off) so the engine can work the watchlist.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">

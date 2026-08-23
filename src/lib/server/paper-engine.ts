@@ -46,8 +46,9 @@ import {
   formatFoOption,
   isCryptoFo,
   isFoSymbol,
-  isNseFo,
+  isNseHoursOnly,
   cryptoFamily,
+  openSkipReason,
   isoDate,
   nextFridayExpiry,
   nextNseWeeklyExpiry,
@@ -192,13 +193,6 @@ function foWatchSymbols(live: Record<string, number>, feed: Record<string, strin
   });
 }
 
-/** NSE F&O only while the cash session is open. Binance names stay 24/7. */
-function isNseHoursOnly(sym: string, feed?: string) {
-  if ((feed ?? "").startsWith("binance")) return false;
-  if (isCryptoFo(sym)) return false;
-  return isNseFo(sym) || feed === "nse-opt-model";
-}
-
 function cryptoHours(sym: string, feed: string | undefined, assetClass?: string) {
   return assetClass === "crypto" || isCryptoFo(sym) || (feed ?? "").startsWith("binance");
 }
@@ -325,7 +319,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 18;
+const ENGINE_REV = 19;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -776,15 +770,26 @@ async function tickUnlocked() {
     }>;
 
     for (const row of ranked) {
+      const skip = execute
+        ? openSkipReason({
+            symbol: row.sym,
+            sleeve,
+            feed: eng.liveFeed[row.sym],
+            delayed: eng.delayed[row.sym],
+            openSession: clock.openSession,
+            positions,
+          })
+        : null;
+      const action = skip ? "FLAT" : row.intent.action;
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
-        action: row.intent.action,
-        reason: `${sleeve}:${row.intent.reason}`,
+        action,
+        reason: `${sleeve}:${skip ?? row.intent.reason}`,
         metaProb: row.intent.metaProb,
         px: row.px,
         sleeve,
         sizePct: row.intent.sizePct,
-        pending: signalsOnly && (row.intent.action === "BUY" || row.intent.action === "SELL"),
+        pending: !skip && signalsOnly && (row.intent.action === "BUY" || row.intent.action === "SELL"),
       });
     }
 
@@ -797,10 +802,18 @@ async function tickUnlocked() {
       if (nOpen >= profile.MAX_POS) break;
       const mid = eng.live[row.sym];
       if (!(mid > 0)) continue;
-      if (!clock.openSession && isNseHoursOnly(row.sym, eng.liveFeed[row.sym])) continue;
-      if (isCryptoFo(row.sym) && (!(eng.liveFeed[row.sym] ?? "").startsWith("binance") || eng.delayed[row.sym])) continue;
-      const fam = cryptoFamily(row.sym);
-      if (fam && positions.some((p) => (p.sleeve ?? "farm") === sleeve && cryptoFamily(p.symbol) === fam)) continue;
+      if (
+        openSkipReason({
+          symbol: row.sym,
+          sleeve,
+          feed: eng.liveFeed[row.sym],
+          delayed: eng.delayed[row.sym],
+          openSession: clock.openSession,
+          positions,
+        })
+      ) {
+        continue;
+      }
       const long = row.intent.action === "BUY";
       const short = row.intent.action === "SELL" && row.intent.reason === "fade_short";
       if (!long && !short) continue;

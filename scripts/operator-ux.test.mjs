@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,6 +9,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const core = pathToFileURL(join(root, "../src/lib/meridian/research-rank-core.ts")).href;
 const reasons = pathToFileURL(join(root, "../src/lib/meridian/reasons.ts")).href;
 const kelly = pathToFileURL(join(root, "../src/lib/meridian/kelly.ts")).href;
+const fo = pathToFileURL(join(root, "../src/lib/meridian/fo-contracts.ts")).href;
 
 test("research rank answers the query; promotion copy is a verdict", () => {
   const src = `
@@ -52,4 +54,79 @@ test("research rank answers the query; promotion copy is a verdict", () => {
     encoding: "utf8",
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+test("auto/paper scan gates match execute: family, stale model, NSE hours", () => {
+  const src = `
+    import { openSkipReason } from ${JSON.stringify(fo)};
+    import { explainReason } from ${JSON.stringify(reasons)};
+
+    const book = [{ symbol: "BTC", sleeve: "farm" }];
+    const opt = openSkipReason({
+      symbol: "BTC 24AUG26 77000 CE",
+      sleeve: "farm",
+      feed: "binance-opt",
+      delayed: false,
+      openSession: false,
+      positions: book,
+    });
+    if (opt !== "family_open") throw new Error("BTC option vs BTC spot: " + opt);
+
+    const perp = openSkipReason({
+      symbol: "BTCPERP",
+      sleeve: "farm",
+      feed: "binance-fut",
+      openSession: false,
+      positions: book,
+    });
+    if (perp !== "family_open") throw new Error("BTCPERP vs BTC: " + perp);
+
+    const doge = openSkipReason({
+      symbol: "DOGE",
+      sleeve: "farm",
+      feed: "binance",
+      openSession: false,
+      positions: book,
+    });
+    if (doge) throw new Error("DOGE should send overnight: " + doge);
+
+    const nse = openSkipReason({
+      symbol: "NIFTY 25AUG26 24500 CE",
+      sleeve: "farm",
+      feed: "nse-opt-model",
+      delayed: true,
+      openSession: false,
+      positions: [],
+    });
+    if (nse !== "nse_session_closed") throw new Error("weekend NSE: " + nse);
+
+    const stale = openSkipReason({
+      symbol: "BTC 24AUG26 77000 CE",
+      sleeve: "farm",
+      feed: "crypto-opt-model",
+      delayed: false,
+      openSession: false,
+      positions: [],
+    });
+    if (stale !== "stale_model") throw new Error("model crypto opt: " + stale);
+
+    const liveOpt = openSkipReason({
+      symbol: "BTC 24AUG26 77000 CE",
+      sleeve: "farm",
+      feed: "binance-opt",
+      delayed: false,
+      openSession: false,
+      positions: [],
+    });
+    if (liveOpt) throw new Error("live binance opt should send: " + liveOpt);
+
+    const text = explainReason("farm:family_open");
+    if (!/already open/i.test(text)) throw new Error("family_open copy: " + text);
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(chips, /id: "auto" as const, label: "Auto"/);
 });

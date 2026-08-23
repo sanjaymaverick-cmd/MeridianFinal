@@ -64,8 +64,8 @@ function AutoPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
           <h1 className="mt-1 font-display text-4xl">Overnight paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Signals proposes and still runs stops. Paper farms
-            labels. Flatten or skip a single clip here — you are not a spectator.
+            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Signals proposes and still runs stops. Paper and Auto
+            both send farm clips. Flatten or skip a single name here — you are not a spectator.
           </p>
         </div>
 
@@ -144,7 +144,9 @@ function AutoPage() {
           <p className="mt-1 text-xs text-subtle">
             {mode === "advisory"
               ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run."
-              : "Farm is sending on its own. Skip a name or flatten an open clip."}
+              : mode === "auto"
+                ? "Auto is sending farm clips on its own. Skip a name or flatten an open clip."
+                : "Paper is sending farm clips. Skip a name or flatten an open clip."}
           </p>
           {pending.length === 0 ? (
             <p className="mt-3 text-sm text-muted">No BUY/SELL proposals this tick.</p>
@@ -188,7 +190,7 @@ function AutoPage() {
           <h2 className="text-sm font-medium">Open clips</h2>
           {positions.length === 0 ? (
             <p className="mt-3 text-sm text-muted">
-              No open clips. Paper or Paper loop must be on, Halt off. Signals still shows proposals above.
+              No open clips. Paper or Auto must be on, Halt off. Signals still shows proposals above.
             </p>
           ) : (
             <div className="mt-3 overflow-x-auto">

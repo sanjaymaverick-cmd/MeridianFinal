@@ -80,7 +80,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <Badge tone={killed ? "down" : mode === "auto" || mode === "paper" ? "warn" : "neutral"}>
-              {killed ? "Halted" : mode === "advisory" ? "signals" : "paper"}
+              {killed ? "Halted" : (MODE_CHIPS.find((m) => m.id === mode)?.label ?? mode)}
             </Badge>
             <Button
               size="sm"

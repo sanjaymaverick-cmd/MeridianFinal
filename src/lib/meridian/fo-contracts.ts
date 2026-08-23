@@ -268,3 +268,35 @@ export function isNseFo(sym: string): boolean {
   if (parseFo(sym)) return true;
   return u.endsWith("FUT") || u.endsWith("CE") || u.endsWith("PE");
 }
+
+/** NSE F&O only while the cash session is open. Binance names stay 24/7. */
+export function isNseHoursOnly(sym: string, feed?: string) {
+  if ((feed ?? "").startsWith("binance")) return false;
+  if (isCryptoFo(sym)) return false;
+  return isNseFo(sym) || feed === "nse-opt-model";
+}
+
+export type OpenSkipPos = { symbol: string; sleeve?: string };
+
+/**
+ * Why the farm/PnL open path will not send this clip. Scan must use the same
+ * gates as execute or Auto advertises BUY/SELL that never hit the book.
+ */
+export function openSkipReason(args: {
+  symbol: string;
+  sleeve?: "farm" | "pnl";
+  feed?: string;
+  delayed?: boolean;
+  openSession: boolean;
+  positions: OpenSkipPos[];
+}): string | null {
+  const sleeve = args.sleeve ?? "farm";
+  const feed = args.feed ?? "";
+  if (!args.openSession && isNseHoursOnly(args.symbol, feed)) return "nse_session_closed";
+  if (isCryptoFo(args.symbol) && (!feed.startsWith("binance") || args.delayed)) return "stale_model";
+  const fam = cryptoFamily(args.symbol);
+  if (fam && args.positions.some((p) => (p.sleeve ?? "farm") === sleeve && cryptoFamily(p.symbol) === fam)) {
+    return "family_open";
+  }
+  return null;
+}
