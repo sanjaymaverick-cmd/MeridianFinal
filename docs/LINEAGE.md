@@ -4,6 +4,8 @@
 **Canonical repo:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
 **As of:** 23 Aug 2026
 
+**Local checkout (operator PC):** `D:\work Dir\MeridianFinal-local\MeridianFinal`
+
 V1–V4 are frozen history. New work ships **only** here. Do not patch the V3 or V4 trees. Do not use [MeridianV4](https://github.com/sanjaymaverick-cmd/MeridianV4) as a working repo.
 
 ```

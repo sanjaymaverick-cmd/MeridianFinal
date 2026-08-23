@@ -6,13 +6,15 @@ Paper desk. Live Binance last for crypto fills. NSE/Yahoo when the cash session 
 
 - **Node.js 22 LTS** — [https://nodejs.org](https://nodejs.org) (include npm)
 - Windows, macOS, or Linux
-- Unzip this folder, e.g. `D:\work Dir\MeridianFinal`
+- This operator’s working copy: `D:\work Dir\MeridianFinal-local\MeridianFinal`
 
 No Postgres required. The app uses embedded PGLite unless you set `DATABASE_URL`.
 
 ## Quick start (Windows)
 
-1. Unzip to `D:\work Dir\MeridianFinal`
+Working copy: **`D:\work Dir\MeridianFinal-local\MeridianFinal`**
+
+1. Open that folder
 2. Double-click **`run.bat`**
    - First run: `npm install` (a few minutes)
    - Copies `.env.example` → `.env` if missing
