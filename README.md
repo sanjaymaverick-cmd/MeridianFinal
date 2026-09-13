@@ -2,12 +2,13 @@
 
 Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 
-- **Auto paper** — ₹10L book, farm sleeve (labels + costs) and PnL sleeve (Kelly, armed after meta promote). Binance overnight; NSE cash/F&O only in the cash session. 10× is a return target, not a promise.
+- **Modes** — Signals (propose) · Paper (approve/skip) · Auto (paper auto-send). Live locked.
+- **Auto paper** — ₹10L book, farm sleeve (labels + costs) and PnL sleeve (Kelly, armed after meta promote: n≥2000, test AUC≥0.55, test hit>52%). Binance overnight; NSE cash/F&O only in the cash session. 10× is a return target, not a promise.
 - **Tape** — NSE, FX, COMEX/MCX, every Binance USDT pair
-- **Book** — CSV → Buy / Hold / Sell
-- **Greeks** — gamma scalping reviews
-- **Research** — natural-language names
-- **Advice** — spot / futures / options cards
+- **Book** — paper clips first; imported CSV is Holdings. META is n/a until promoted.
+- **Greeks** — what-if calculator + gamma reviews (not an order)
+- **Research** — rank the query or return empty
+- **Advice** — spot / futures / options cards. Always “(not an order)”
 
 **Run on your PC:** see [LOCAL.md](LOCAL.md) (`run.bat` on Windows, `run.sh` on macOS/Linux).
 
