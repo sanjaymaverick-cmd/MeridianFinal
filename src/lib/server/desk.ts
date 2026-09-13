@@ -4,6 +4,8 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { UNIVERSE, detectRegime } from "@/lib/meridian/universe";
 import { buildAdvice, istSession, type MarketState } from "@/lib/meridian/advice";
 import { parseHoldingsCsv, type HoldingRow } from "@/lib/meridian/portfolio";
+import { rankResearch } from "@/lib/meridian/research-rank";
+import { getArtefact } from "@/lib/meridian/artefact";
 import { seedTestDeskUser } from "@/lib/server/seed-test-user";
 import { getHistoryBars, getLiveBook, overlayName, type LiveQuote } from "@/lib/server/quotes";
 import { listBinanceLive } from "@/lib/server/binance-catalog";
@@ -53,7 +55,7 @@ export const getMarket = createServerFn({ method: "GET" }).handler(async () => {
       : (await listBinanceLive()).map((r) => ({ symbol: r.symbol, pair: r.pair, last: r.last, chg: r.chg, vol: r.vol }));
   return {
     state,
-    advice: buildAdvice(state),
+    advice: buildAdvice(state, { promoted: getArtefact().promoted }),
     quotes,
     names,
     binance,
@@ -65,7 +67,7 @@ export const getMarket = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 export const getHistory = createServerFn({ method: "GET" })
-  .validator((input: { symbol: string; range?: "1mo" | "3mo" | "1y" | "5y" }) => input)
+  .validator((input: { symbol: string; range?: "1d" | "5d" | "1mo" | "3mo" | "1y" | "5y" }) => input)
   .handler(async ({ data }) => getHistoryBars(data.symbol.toUpperCase(), data.range ?? "1y"));
 
 export const getPaperBook = createServerFn({ method: "GET" }).handler(async () => {
@@ -87,9 +89,52 @@ export const resetPaperBook = createServerFn({ method: "POST" }).handler(async (
 });
 
 export const getPaperSamples = createServerFn({ method: "GET" }).handler(async () => {
-  const { listSamples } = await import("@/lib/server/paper-engine");
-  return listSamples(800);
+  const { listFitSamples } = await import("@/lib/server/paper-engine");
+  return listFitSamples(4000);
 });
+
+export const runPaperOp = createServerFn({ method: "POST" })
+  .validator((input: { type: string; symbol?: string; qty?: number; side?: "long" | "short"; sleeve?: "farm" | "pnl" }) => input)
+  .handler(async ({ data }) => {
+    const { operatorAction } = await import("@/lib/server/paper-engine");
+    if (data.type === "hedge") return operatorAction({ type: "hedge", side: data.side ?? "short", qty: data.qty });
+    if (data.type === "open") {
+      return operatorAction({
+        type: "open",
+        symbol: String(data.symbol ?? ""),
+        qty: data.qty,
+        side: data.side,
+        sleeve: data.sleeve,
+      });
+    }
+    const symbol = String(data.symbol ?? "");
+    if (data.type === "flatten") return operatorAction({ type: "flatten", symbol });
+    if (data.type === "flatten_all") return operatorAction({ type: "flatten_all" });
+    if (data.type === "reverse") return operatorAction({ type: "reverse", symbol });
+    if (data.type === "skip") return operatorAction({ type: "skip", symbol });
+    if (data.type === "block") return operatorAction({ type: "block", symbol });
+    if (data.type === "unblock") return operatorAction({ type: "unblock", symbol });
+    if (data.type === "watch") return operatorAction({ type: "watch", symbol });
+    if (data.type === "unwatch") return operatorAction({ type: "unwatch", symbol });
+    throw new Error("Unknown paper op");
+  });
+
+export const listResearchHistory = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const rows = await sql<{ query: string; result_json: string; created_at: string }>`
+      select query, result_json, created_at from research_runs
+      where user_id = ${context.userId}
+      order by created_at desc
+      limit 12
+    `;
+    return rows.map((r) => ({
+      query: r.query,
+      at: r.created_at,
+      names: JSON.parse(r.result_json) as ResearchName[],
+    }));
+  });
 
 export const saveHoldings = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -147,6 +192,8 @@ export type ResearchName = {
   why: string;
   risk: string;
   sleeve: string;
+  next?: string;
+  match?: string;
 };
 
 export const runResearch = createServerFn({ method: "POST" })
@@ -213,71 +260,6 @@ function extractJson(text: string): { names?: ResearchName[] } | null {
 }
 
 function heuristicResearch(query: string) {
-  const q = query.toLowerCase();
-  const scored = UNIVERSE.map((u) => {
-    let s = 0;
-    for (const t of u.themes) if (q.includes(t.replace(/-/g, " ")) || q.includes(t)) s += 3;
-    const keys = [
-      "data center",
-      "datacenter",
-      "ai",
-      "cable",
-      "power",
-      "spare",
-      "component",
-      "ems",
-      "cooling",
-      "grid",
-      "bitcoin",
-      "crypto",
-      "gold",
-      "silver",
-      "crude",
-      "copper",
-      "forex",
-      "dollar",
-      "rupee",
-      "yen",
-    ];
-    for (const k of keys)
-      if (
-        q.includes(k) &&
-        u.themes.some(
-          (t) =>
-            t.includes(k.split(" ")[0]!) ||
-            t.includes("ai") ||
-            t.includes("power") ||
-            t.includes("cables") ||
-            t.includes("ems") ||
-            t.includes("crypto") ||
-            t.includes("commodity") ||
-            t.includes("forex"),
-        )
-      )
-        s += 2;
-    if (q.includes("bank") && u.themes.includes("banks")) s += 4;
-    if (q.includes("it") && u.themes.includes("it-services")) s += 3;
-    if ((q.includes("crypto") || q.includes("bitcoin") || q.includes("btc")) && u.assetClass === "crypto") s += 6;
-    if ((q.includes("forex") || q.includes("dollar") || q.includes("rupee") || q.includes("fx")) && u.assetClass === "forex")
-      s += 6;
-    if (
-      (q.includes("gold") || q.includes("crude") || q.includes("silver") || q.includes("commodit") || q.includes("copper")) &&
-      u.assetClass === "commodity"
-    )
-      s += 6;
-    s += u.quality / 4 + u.sentiment / 5;
-    return { u, s };
-  })
-    .sort((a, b) => b.s - a.s)
-    .slice(0, 6)
-    .map(({ u }) => ({
-      symbol: u.symbol,
-      name: u.name,
-      sector: u.sector,
-      score: Math.round((u.quality * 0.5 + u.sentiment * 0.3 + 2) * 10) / 10,
-      why: u.thesis,
-      risk: "Valuation and execution can slip; this is a research shortlist, not an order.",
-      sleeve: u.assetClass === "crypto" ? "Crypto" : u.assetClass === "forex" ? "FX" : u.assetClass === "commodity" ? "Commodity" : "Spot",
-    }));
-  return { ok: true as const, source: "desk" as const, names: scored };
+  const r = rankResearch(query);
+  return { ok: true as const, source: "desk" as const, names: r.names, emptyNote: r.emptyNote };
 }

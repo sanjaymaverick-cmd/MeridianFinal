@@ -48,3 +48,21 @@ export async function resetDeskPaper() {
     console.error("[desk] reset failed", err);
   }
 }
+
+export async function runDeskOp(data: {
+  type: string;
+  symbol?: string;
+  qty?: number;
+  side?: "long" | "short";
+  sleeve?: "farm" | "pnl";
+}): Promise<{ error?: string } & Record<string, unknown>> {
+  const { runPaperOp } = await import("@/lib/server/desk");
+  try {
+    const book = await runPaperOp({ data });
+    useDesk.getState().hydratePaper(book);
+    return book;
+  } catch (err) {
+    console.error("[desk] op failed", err);
+    throw err;
+  }
+}

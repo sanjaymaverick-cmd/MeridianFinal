@@ -16,6 +16,9 @@ export function AppErrorComponent({ error }: ErrorComponentProps) {
       <p className="max-w-md text-sm break-words text-zinc-500 dark:text-zinc-400">
         {error.message || "An unexpected error occurred. Try reloading the page."}
       </p>
+      <a href="/" className="mt-2 text-sm underline underline-offset-4">
+        Back to the desk
+      </a>
     </main>
   );
 }

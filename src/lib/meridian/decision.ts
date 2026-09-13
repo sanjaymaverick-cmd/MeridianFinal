@@ -161,10 +161,15 @@ function finite(x: unknown, d = 0) {
   return Number.isFinite(v) ? v : d;
 }
 
+function markEntry(pos: Position) {
+  return pos.entryMid && pos.entryMid > 0 ? pos.entryMid : pos.entryPrice;
+}
+
 function rMultiple(pos: Position, px: number) {
-  if (pos.entryPrice <= 0 || pos.stopPct <= 0) return 0;
+  const entry = markEntry(pos);
+  if (entry <= 0 || pos.stopPct <= 0) return 0;
   const dir = pos.side === "short" ? -1 : 1;
-  return ((px / pos.entryPrice - 1) * dir) / pos.stopPct;
+  return ((px / entry - 1) * dir) / pos.stopPct;
 }
 
 export function scoreSignal(sig: Signal): number {

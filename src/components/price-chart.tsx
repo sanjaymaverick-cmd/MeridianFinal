@@ -34,7 +34,7 @@ export function PriceChart({ bars, quote = "INR" }: { bars: Bar[]; quote?: "INR"
               "Close",
             ]}
           />
-          <Area type="monotone" dataKey="c" stroke={color} fill="url(#pxFill)" strokeWidth={1.6} />
+          <Area type="monotone" dataKey="c" stroke={color} fill="url(#pxFill)" strokeWidth={1.6} isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
