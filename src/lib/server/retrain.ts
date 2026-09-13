@@ -6,6 +6,7 @@ import { shouldPromote } from "@/lib/meridian/kelly";
 import { FEATURE_KEYS, emptyFeatures, packFeatures, type FeatureVec } from "@/lib/meridian/features";
 import { FIT_MIN_N } from "@/lib/meridian/kelly";
 import { fitLogistic, hitRate, predictRow, rocAuc, timeSplit } from "@/lib/meridian/logistic";
+import { isPredSample } from "@/lib/meridian/pred-orb";
 
 const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
@@ -26,6 +27,10 @@ type SampleRow = {
   tsClose?: number;
   ts_close?: string;
   quoteLabel?: string;
+  sleeve?: string;
+  symbol?: string;
+  reasonOpen?: string;
+  reason_open?: string;
 };
 
 function featureRow(raw: SampleRow): FeatureVec {
@@ -83,12 +88,13 @@ export async function sampleQuality(jsonlPath = JSONL): Promise<SampleQuality> {
   let holdSum = 0;
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
-    let row: { hold_sec?: number; holdSec?: number; reason_close?: string; reasonClose?: string };
+    let row: { hold_sec?: number; holdSec?: number; reason_close?: string; reasonClose?: string; sleeve?: string; symbol?: string; reasonOpen?: string };
     try {
       row = JSON.parse(line) as typeof row;
     } catch {
       continue;
     }
+    if (isPredSample(row)) continue;
     n += 1;
     const hold = Number(row.hold_sec ?? row.holdSec);
     if (Number.isFinite(hold)) {
@@ -112,7 +118,9 @@ export async function retrainFromJsonl(jsonlPath = JSONL): Promise<ArtefactStatu
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
     try {
-      rows.push(JSON.parse(line) as SampleRow);
+      const row = JSON.parse(line) as SampleRow;
+      if (isPredSample(row)) continue;
+      rows.push(row);
     } catch {
       /* skip */
     }

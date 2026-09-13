@@ -13,6 +13,7 @@ import { paperSend } from "@/lib/desk-ops";
 import { paperBlockedReason } from "@/lib/meridian/session-lock";
 import { FlashPx } from "@/components/flash-px";
 import { DepthHeatmap } from "@/components/depth-heatmap";
+import { PaperOrb } from "@/components/paper-orb";
 
 export const Route = createFileRoute("/markets")({
   validateSearch: (s: Record<string, unknown>): { symbol?: string } =>
@@ -136,6 +137,8 @@ function MarketsPage() {
             <div>{asOf ? formatIst(asOf) : "…"} IST</div>
           </div>
         </div>
+
+        <PaperOrb compact />
 
         <div className="flex flex-wrap items-center gap-2">
           {FILTERS.map((f) => (

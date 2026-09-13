@@ -9,8 +9,9 @@
 import { predictMetaProb } from "./artefact";
 import { kellySizePct } from "./kelly";
 import { clamp } from "../utils";
+import { PRED_PROFILE } from "./pred-orb";
 
-export type DeskSleeve = "farm" | "pnl";
+export type DeskSleeve = "farm" | "pnl" | "pred";
 
 export const STOP_ATR_MULT = 1.5;
 export const EOD_FLATTEN_MIN = 15;
@@ -277,5 +278,7 @@ export function sessionClock(now = new Date()) {
 }
 
 export function profileOf(sleeve: DeskSleeve | undefined): SleeveProfile {
-  return sleeve === "pnl" ? PNL_PROFILE : FARM_PROFILE;
+  if (sleeve === "pnl") return PNL_PROFILE;
+  if (sleeve === "pred") return PRED_PROFILE as SleeveProfile;
+  return FARM_PROFILE;
 }

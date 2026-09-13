@@ -33,13 +33,15 @@ export function autoCanSend(mode: string, killed: boolean) {
 /** Structural skip plus core/tail. Keep no_leverage on PERP/FUT/options. */
 export function autoOpenSkip(args: {
   symbol: string;
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
   feed?: string;
   delayed?: boolean;
   openSession: boolean;
   positions: OpenSkipPos[];
   farmTail?: boolean;
 }): string | null {
+  const u = args.symbol.toUpperCase();
+  if (u === "BTC5M_YES" || u === "BTC5M_NO" || args.sleeve === "pred") return "universe_filter";
   const skip = openSkipReason(args);
   if (skip) return skip;
   if (args.sleeve === "pnl") return null;

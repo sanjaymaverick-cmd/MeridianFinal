@@ -246,6 +246,7 @@ export const OPTION_STUBS = new Set([
 
 /** Spot, perp, and options on the same coin share one farm slot. */
 export function cryptoFamily(sym: string): string | null {
+  if (isPredName(sym)) return "pred-btc5m";
   const fo = parseFo(sym);
   if (fo?.underlier === "BTC" || fo?.underlier === "ETH" || fo?.underlier === "SOL") return fo.underlier;
   const u = sym.toUpperCase();
@@ -275,13 +276,18 @@ export function isNseHoursOnly(sym: string, feed?: string) {
 
 export type OpenSkipPos = { symbol: string; sleeve?: string };
 
+function isPredName(sym: string) {
+  const u = sym.toUpperCase();
+  return u === "BTC5M_YES" || u === "BTC5M_NO";
+}
+
 /**
  * Why the farm/PnL open path will not send this clip. Scan must use the same
  * gates as execute or Auto advertises BUY/SELL that never hit the book.
  */
 export function openSkipReason(args: {
   symbol: string;
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
   feed?: string;
   delayed?: boolean;
   openSession: boolean;

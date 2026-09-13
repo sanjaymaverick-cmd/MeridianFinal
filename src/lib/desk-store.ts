@@ -20,7 +20,7 @@ export type Fill = {
   expiry?: string;
   strike?: number;
   right?: string;
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
 };
 
 export type ScanRow = {
@@ -29,7 +29,7 @@ export type ScanRow = {
   reason: string;
   metaProb: number;
   px: number;
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
   sizePct?: number;
   pending?: boolean;
 };

@@ -54,7 +54,7 @@ export async function runDeskOp(data: {
   symbol?: string;
   qty?: number;
   side?: "long" | "short";
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
 }): Promise<{ error?: string } & Record<string, unknown>> {
   const { runPaperOp } = await import("@/lib/server/desk");
   try {

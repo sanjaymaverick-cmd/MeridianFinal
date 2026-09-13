@@ -20,6 +20,8 @@ No Node.js install. Double-click **`MeridianFinal-Setup-1.0.0.exe`** (build it w
 
 Unsigned personal software — Windows SmartScreen may warn once.
 
+The Command **orb** is paper YES/NO on Polymarket's public BTC 5-minute Up/Down tape. Not a Polymarket order. Not in the farm fit set. Settlement uses Polymarket resolution when Gamma marks the window closed; otherwise Binance USDT last at window open vs close.
+
 ## Quick start (Windows, from source)
 
 1. Unzip to `D:\work Dir\MeridianFinal`

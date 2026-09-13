@@ -76,6 +76,11 @@ export const getPaperBook = createServerFn({ method: "GET" }).handler(async () =
   return snapshotBook();
 });
 
+export const getPredOrb = createServerFn({ method: "GET" }).handler(async () => {
+  const { fetchBtc5mQuote } = await import("@/lib/server/polymarket");
+  return fetchBtc5mQuote();
+});
+
 export const setPaperFlags = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { mode?: "advisory" | "paper" | "auto"; killed?: boolean }) => input)
@@ -98,7 +103,7 @@ export const getPaperSamples = createServerFn({ method: "GET" }).handler(async (
 
 export const runPaperOp = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { type: string; symbol?: string; qty?: number; side?: "long" | "short"; sleeve?: "farm" | "pnl" }) => input)
+  .validator((input: { type: string; symbol?: string; qty?: number; side?: "long" | "short"; sleeve?: "farm" | "pnl" | "pred" }) => input)
   .handler(async ({ data }) => {
     const { operatorAction } = await import("@/lib/server/paper-engine");
     if (data.type === "hedge") return operatorAction({ type: "hedge", side: data.side ?? "short", qty: data.qty });

@@ -34,6 +34,22 @@ import {
 import { barrierFromExit, tripleBarrier } from "@/lib/meridian/triple-barrier";
 import { loadArtefactFromDisk, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
+import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
+import {
+  PRED_FEED,
+  PRED_FILL_BP,
+  PRED_NO,
+  PRED_SLEEVE,
+  PRED_YES,
+  binanceWinner,
+  isPredSymbol,
+  predFillPx,
+  predOpenReason,
+  predPayout,
+  predQty,
+  predSideOf,
+  type PredSide,
+} from "@/lib/meridian/pred-orb";
 import { listBinanceAtmOptions, listBinancePerps } from "@/lib/server/binance-catalog";
 import type { UniverseName } from "@/lib/meridian/universe";
 import {
@@ -312,6 +328,7 @@ type Engine = PaperBook & {
   lastRetrainN: number;
   delayed: Record<string, boolean>;
   foMeta: Record<string, { expiry?: string; strike?: number; right?: string; contract?: string }>;
+  predBtcOpen: Record<number, number>;
 };
 
 const g = globalThis as typeof globalThis & {
@@ -319,7 +336,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 33;
+const ENGINE_REV = 35;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -352,6 +369,7 @@ function emptyEngine(): Engine {
     lastRetrainN: 0,
     delayed: {},
     foMeta: {},
+    predBtcOpen: {},
     blocked: [],
     extraWatch: [],
     heatFarm: 0,
@@ -461,6 +479,20 @@ async function refreshLive(eng: Engine) {
     for (const [sym, last] of Object.entries(bn)) putLive(eng, sym, last, "binance", false);
   } catch {
     /* keep going */
+  }
+
+  try {
+    const pred = await fetchBtc5mQuote();
+    if (pred.ok && pred.yes != null && pred.no != null) {
+      putLive(eng, PRED_YES, pred.yes, PRED_FEED, pred.stale);
+      putLive(eng, PRED_NO, pred.no, PRED_FEED, pred.stale);
+    }
+    const btc = eng.live.BTC ?? 0;
+    if (pred.windowStart > 0 && btc > 0 && !eng.predBtcOpen[pred.windowStart]) {
+      eng.predBtcOpen[pred.windowStart] = btc;
+    }
+  } catch {
+    /* public feed optional */
   }
 
   try {
@@ -591,6 +623,10 @@ async function tickUnlocked() {
   const still: Position[] = [];
   const keptFamily = new Set<string>();
   for (const pos of positions) {
+    if (pos.sleeve === PRED_SLEEVE || isPredSymbol(pos.symbol)) {
+      still.push(pos);
+      continue;
+    }
     const livePx = eng.live[pos.symbol];
     const u = UNIVERSE.find((x) => x.symbol === pos.symbol);
     const feed = eng.liveFeed[pos.symbol] ?? "";
@@ -718,6 +754,10 @@ async function tickUnlocked() {
     const keep: Position[] = [];
     const drop: Position[] = [];
     for (const p of positions) {
+      if (p.sleeve === PRED_SLEEVE || isPredSymbol(p.symbol)) {
+        keep.push(p);
+        continue;
+      }
       const lev = autoOpenSkip({
         symbol: p.symbol,
         sleeve: p.sleeve ?? "farm",
@@ -913,9 +953,9 @@ async function tickUnlocked() {
   const farmScan = unique([...extraFarm, ...farmScanWatch(eng.live)]);
   const farmOpen = unique([...extraFarm.filter((s) => farmBucket(s) === "core" || eng.farmTail), ...farmWatch(eng.live, !!eng.farmTail)]);
   const execute = autoCanSend(eng.mode, eng.killed);
-  await openSleeve("farm", unique([...farmScan, ...farmOpen]), FARM_PROFILE, execute);
-  await openSleeve("pnl", pnlWatch(eng.live), PNL_PROFILE, execute);
-  await openSleeve("farm", proposeWatch(eng.live, eng.liveFeed, clock.openSession), FARM_PROFILE, false);
+  await openSleeve("farm", unique([...farmScan, ...farmOpen]).filter((s) => !isPredSymbol(s)), FARM_PROFILE, execute);
+  await openSleeve("pnl", pnlWatch(eng.live).filter((s) => !isPredSymbol(s)), PNL_PROFILE, execute);
+  await openSleeve("farm", proposeWatch(eng.live, eng.liveFeed, clock.openSession).filter((s) => !isPredSymbol(s)), FARM_PROFILE, false);
   if (execute && (eng.samples - eng.lastRetrainN >= 50 || (art.source === "synth" && now - eng.lastRetrainAt > 60_000))) {
     const next = await retrainFromJsonl();
     if (next) {
@@ -928,8 +968,9 @@ async function tickUnlocked() {
   }
 
   eng.positions = positions;
-  eng.heatFarm = positions.filter((p) => (p.sleeve ?? "farm") === "farm").reduce((a, p) => a + p.sizePct, 0);
-  eng.heatPnl = positions.filter((p) => p.sleeve === "pnl").reduce((a, p) => a + p.sizePct, 0);
+  await settlePredWindows(eng, now);
+  eng.heatFarm = eng.positions.filter((p) => (p.sleeve ?? "farm") === "farm").reduce((a, p) => a + p.sizePct, 0);
+  eng.heatPnl = eng.positions.filter((p) => p.sleeve === "pnl").reduce((a, p) => a + p.sizePct, 0);
   eng.scan = scan;
   try {
     await mkdir(DATA_DIR, { recursive: true });
@@ -1102,7 +1143,7 @@ export type OperatorCmd =
 export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string } {
   const e = getEngine();
   const now = Date.now();
-  const bare = (s: string) => s.replace(/^(farm|pnl):/, "");
+  const bare = (s: string) => s.replace(/^(farm|pnl|pred):/, "");
   if (cmd.type === "skip") {
     const sym = bare(cmd.symbol);
     e.cooldownUntil[sym] = now + 15 * 60 * 1000;
@@ -1112,6 +1153,9 @@ export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string }
     const sym = bare(cmd.symbol);
     const pos = e.positions.find((p) => p.symbol === sym);
     if (!pos) return { ...snapshotBook(), error: "no_open_clip" };
+    if (pos.sleeve === PRED_SLEEVE || isPredSymbol(sym)) {
+      return { ...snapshotBook(), error: "pred_no_reverse" };
+    }
     const qty = pos.qty;
     const next: "long" | "short" = pos.side === "long" ? "short" : "long";
     flattenNow(e, sym, now);
@@ -1133,7 +1177,10 @@ export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string }
   } else if (cmd.type === "flatten") {
     flattenNow(e, bare(cmd.symbol), now);
   } else if (cmd.type === "open") {
-    const err = openNow(e, bare(cmd.symbol), cmd.side ?? "long", cmd.sleeve ?? "farm", cmd.qty, now);
+    const sym = bare(cmd.symbol);
+    const err = isPredSymbol(sym) || cmd.sleeve === PRED_SLEEVE
+      ? predOpenNow(e, sym, now)
+      : openNow(e, sym, cmd.side ?? "long", cmd.sleeve ?? "farm", cmd.qty, now);
     if (err) return { ...snapshotBook(), error: err };
   } else if (cmd.type === "hedge") {
     const sym = e.live.NIFTYFUT ? "NIFTYFUT" : "NIFTY";
@@ -1142,11 +1189,181 @@ export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string }
   return snapshotBook();
 }
 
+function predOpenNow(e: Engine, symbol: string, now: number): string | undefined {
+  if (e.killed) return "pred_paused";
+  const side = predSideOf(symbol);
+  if (!side) return "bad_price";
+  const q = peekPredCache();
+  const mid = side === "yes" ? q?.yes : q?.no;
+  if (!q?.ok || !(mid != null && mid > 0)) return "quote_unavailable";
+  if (e.positions.some((p) => p.sleeve === PRED_SLEEVE || isPredSymbol(p.symbol))) return "family_open";
+  const px = predFillPx(mid, "buy");
+  const qty = predQty(px, e.ticks.USDINR ?? e.live.USDINR ?? 95.7);
+  if (qty <= 0) return "zero_size";
+  const reason = predOpenReason(side);
+  const btcOpen = e.predBtcOpen[q.windowStart] ?? e.live.BTC ?? e.ticks.BTC ?? 0;
+  const pos: Position = {
+    symbol,
+    side: "long",
+    entryPrice: px,
+    entryMid: mid,
+    entryTs: now,
+    stopPct: 0,
+    sizePct: 0.01,
+    metaProb: mid,
+    highSinceEntry: mid,
+    lowSinceEntry: mid,
+    qty,
+    reasonOpen: reason,
+    confidence: mid,
+    confluence: 50,
+    pSuccess: mid,
+    atrPct: 0.02,
+    score: 5,
+    expiry: new Date(q.windowEnd * 1000).toISOString(),
+    right: side === "yes" ? "YES" : "NO",
+    quoteLabel: q.stale ? "delayed" : "live",
+    sleeve: PRED_SLEEVE,
+    costBps: PRED_FILL_BP * 2,
+    features: { btc_open: btcOpen, window_end: q.windowEnd, window_start: q.windowStart },
+    farmBucket: "other",
+  };
+  e.positions = [...e.positions, pos];
+  e.live[symbol] = mid;
+  e.liveFeed[symbol] = PRED_FEED;
+  const fill: Fill = {
+    id: `${now}-${symbol}-pred-${qty}`,
+    ts: now,
+    symbol,
+    side: "BUY",
+    qty,
+    price: px,
+    reason,
+    quoteLabel: pos.quoteLabel,
+    sleeve: PRED_SLEEVE,
+    expiry: pos.expiry,
+    right: pos.right,
+  };
+  e.fills = [fill, ...e.fills].slice(0, 400);
+  void persistFill(fill, pos.metaProb, null);
+}
+
+async function settlePredWindows(eng: Engine, now: number) {
+  const keep: Position[] = [];
+  for (const pos of eng.positions) {
+    if (pos.sleeve !== PRED_SLEEVE && !isPredSymbol(pos.symbol)) {
+      keep.push(pos);
+      continue;
+    }
+    const held = predSideOf(pos.symbol);
+    const windowEnd = Number(pos.features?.window_end ?? (pos.expiry ? Date.parse(pos.expiry) / 1000 : 0));
+    const windowStart = Number(pos.features?.window_start ?? (windowEnd > 0 ? windowEnd - 300 : 0));
+    const due = windowEnd > 0 ? now >= windowEnd * 1000 : false;
+    if (!held || !due) {
+      keep.push(pos);
+      continue;
+    }
+    let winner: PredSide | null = null;
+    let source: "polymarket" | "binance" = "binance";
+    try {
+      const resolved = await fetchBtc5mQuoteAt(windowStart, now);
+      if (resolved.resolved) {
+        winner = resolved.resolved;
+        source = "polymarket";
+      }
+    } catch {
+      /* Binance fallback */
+    }
+    if (!winner) {
+      const btcOpen = Number(pos.features?.btc_open ?? eng.predBtcOpen[windowStart] ?? 0);
+      const btcClose = eng.live.BTC ?? eng.ticks.BTC ?? 0;
+      if (!(btcOpen > 0) || !(btcClose > 0)) {
+        keep.push(pos);
+        continue;
+      }
+      winner = binanceWinner(btcOpen, btcClose);
+      source = "binance";
+    }
+    const payout = predPayout(held, winner);
+    const px = payout;
+    const pnl = (px - pos.entryPrice) * pos.qty;
+    const fill: Fill = {
+      id: `${now}-${pos.symbol}-settle-${Math.random().toString(16).slice(2, 8)}`,
+      ts: now,
+      symbol: pos.symbol,
+      side: "SELL",
+      qty: pos.qty,
+      price: px,
+      reason: `pred_settle:${source}:${held}:paper`,
+      quoteLabel: "live",
+      sleeve: PRED_SLEEVE,
+      expiry: pos.expiry,
+      right: pos.right,
+    };
+    eng.fills = [fill, ...eng.fills].slice(0, 400);
+    eng.dailyPnl += pnl;
+    await persistFill(fill, pos.metaProb, pnl);
+    await persistSample({
+      id: fill.id,
+      tsOpen: pos.entryTs,
+      tsClose: now,
+      opened_ist: formatIstStamp(pos.entryTs),
+      closed_ist: formatIstStamp(now),
+      symbol: pos.symbol,
+      side: pos.side,
+      qty: pos.qty,
+      entry: pos.entryPrice,
+      exit: px,
+      pnl,
+      holdSec: (now - pos.entryTs) / 1000,
+      fwdRet: netFwdRet(pos.entryPrice, px, pos.side),
+      reasonOpen: pos.reasonOpen,
+      reasonClose: `pred_settle:${source}`,
+      metaProb: pos.metaProb,
+      confidence: pos.confidence,
+      confluence: pos.confluence,
+      pSuccess: pos.pSuccess,
+      atrPct: pos.atrPct,
+      score: pos.score,
+      label: payout > 0 ? 1 : 0,
+      barrier: "pred",
+      sleeve: PRED_SLEEVE,
+      quoteLabel: "live",
+      features: pos.features,
+      farmBucket: "other",
+    });
+  }
+  eng.positions = keep;
+}
+
 function flattenNow(e: Engine, symbol: string, now: number) {
   const keep: Position[] = [];
   for (const pos of e.positions) {
     if (pos.symbol !== symbol) {
       keep.push(pos);
+      continue;
+    }
+    if (pos.sleeve === PRED_SLEEVE || isPredSymbol(pos.symbol)) {
+      const mid = e.live[pos.symbol] || e.ticks[pos.symbol] || pos.entryPrice;
+      const px = predFillPx(mid, "sell");
+      const pnl = (px - pos.entryPrice) * pos.qty;
+      const fill: Fill = {
+        id: `${now}-${pos.symbol}-flat-${Math.random().toString(16).slice(2, 8)}`,
+        ts: now,
+        symbol: pos.symbol,
+        side: "SELL",
+        qty: pos.qty,
+        price: px,
+        reason: `flatten_operator:pred:paper`,
+        quoteLabel: quoteLabelOf(e.liveFeed[pos.symbol], e.delayed[pos.symbol]),
+        sleeve: PRED_SLEEVE,
+        expiry: pos.expiry,
+        right: pos.right,
+      };
+      e.fills = [fill, ...e.fills].slice(0, 400);
+      e.dailyPnl += pnl;
+      e.cooldownUntil[pos.symbol] = now + 90_000;
+      void persistFill(fill, pos.metaProb, pnl);
       continue;
     }
     const mid = e.live[pos.symbol] || e.ticks[pos.symbol] || pos.entryPrice;
@@ -1185,6 +1402,7 @@ function openNow(
   now: number,
   reason = "open_operator",
 ): string | undefined {
+  if (isPredSymbol(symbol) || sleeve === PRED_SLEEVE) return "universe_filter";
   const clock = sessionClock();
   const skip = openSkipReason({
     symbol,
@@ -1269,7 +1487,9 @@ export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
     txt = await readFile(JSONL, "utf8");
   } catch {
     const live = await listSamples(Math.min(limit, 800));
-    return live.map((r) => ({
+    return live
+      .filter((r) => !isPredSymbol(r.symbol) && !String(r.reason_open ?? "").startsWith("pred:"))
+      .map((r) => ({
       symbol: r.symbol,
       side: r.side,
       hold_sec: r.hold_sec,
@@ -1296,8 +1516,12 @@ export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
         fwdRet?: number;
         reason_close?: string;
         reasonClose?: string;
+        reasonOpen?: string;
+        reason_open?: string;
+        sleeve?: string;
         pnl?: number;
       };
+      if (r.sleeve === PRED_SLEEVE || isPredSymbol(String(r.symbol ?? ""))) continue;
       const hold = Number(r.hold_sec ?? r.holdSec ?? 0);
       const reason = String(r.reason_close ?? r.reasonClose ?? "");
       rows.push({

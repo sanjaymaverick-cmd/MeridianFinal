@@ -9,7 +9,7 @@ export async function paperSend(opts: {
   symbol?: string;
   qty?: number;
   side?: "long" | "short";
-  sleeve?: "farm" | "pnl";
+  sleeve?: "farm" | "pnl" | "pred";
   feed?: string;
 }) {
   if (opts.type === "open" && opts.symbol) {
@@ -33,7 +33,11 @@ export async function paperSend(opts: {
       return;
     }
     if (opts.type === "open") {
-      toast.message(`Papered ${opts.qty ?? ""} ${opts.symbol ?? ""} ${opts.side ?? "long"}. Kite stays off.`);
+      if (opts.sleeve === "pred") {
+        toast.message(`Papered ${opts.symbol}. Not a Polymarket order. Not in the farm fit set.`);
+      } else {
+        toast.message(`Papered ${opts.qty ?? ""} ${opts.symbol ?? ""} ${opts.side ?? "long"}. Kite stays off.`);
+      }
     } else if (opts.type === "flatten") {
       toast.message(`Flattened ${opts.symbol}. Kite stays off.`);
     } else if (opts.type === "reverse") {

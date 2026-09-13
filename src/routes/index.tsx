@@ -16,6 +16,7 @@ import { DeskNumber } from "@/components/desk-number";
 import { CobeGlobe } from "@/components/cobe-globe";
 import { nseCashClosed } from "@/lib/meridian/session-lock";
 import { FlashPx } from "@/components/flash-px";
+import { PaperOrb } from "@/components/paper-orb";
 
 export const Route = createFileRoute("/")({ component: Command });
 
@@ -90,7 +91,10 @@ function Command() {
         </section>
 
         <section className="grid gap-3 lg:grid-cols-[1fr_240px]">
-          <PromotionChip meta={paper.data?.meta} />
+          <div className="grid gap-3">
+            <PromotionChip meta={paper.data?.meta} />
+            <PaperOrb compact />
+          </div>
           <div className="hidden justify-center lg:flex">
             <CobeGlobe />
           </div>
