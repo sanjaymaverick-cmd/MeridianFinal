@@ -1,0 +1,91 @@
+appId: in.meridian.final
+productName: Meridian Final
+copyright: Paper desk. Not an order.
+asar: false
+compression: normal
+npmRebuild: false
+nodeGypRebuild: false
+forceCodeSigning: false
+electronVersion: 36.3.2
+afterPack: desktop/after-pack.cjs
+directories:
+  app: desktop
+  output: release
+  buildResources: desktop
+files:
+  - "**/*"
+  - "!vendor/**"
+  - "!electron-builder.yml"
+extraResources:
+  - from: desktop/vendor/node.exe
+    to: node/node.exe
+  - from: src
+    to: desk/src
+  - from: public
+    to: desk/public
+  - from: migrations
+    to: desk/migrations
+  - from: scripts
+    to: desk/scripts
+  - from: server
+    to: desk/server
+  - from: meridian_final
+    to: desk/meridian_final
+  - from: package.json
+    to: desk/package.json
+  - from: vite.config.ts
+    to: desk/vite.config.ts
+  - from: tsconfig.json
+    to: desk/tsconfig.json
+  - from: .env.example
+    to: desk/.env.example
+  - from: node_modules
+    to: desk/node_modules
+    filter:
+      - "**/*"
+      - "!electron/**"
+      - "!electron-builder/**"
+      - "!electron-winstaller/**"
+      - "!electron-publish/**"
+      - "!electron-builder-squirrel-windows/**"
+      - "!app-builder-bin/**"
+      - "!app-builder-lib/**"
+      - "!builder-util/**"
+      - "!builder-util-runtime/**"
+      - "!dmg-builder/**"
+      - "!7zip-bin/**"
+      - "!playwright/**"
+      - "!playwright-core/**"
+      - "!@playwright/**"
+      - "!eslint/**"
+      - "!@eslint/**"
+      - "!prettier/**"
+      - "!typescript-eslint/**"
+      - "!@types/**"
+      - "!@electron/**"
+      - "!**/*.map"
+win:
+  icon: desktop/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: MeridianFinal-Setup-${version}.${ext}
+  signAndEditExecutable: false
+  verifyUpdateCodeSignature: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: desktop/icon.ico
+  uninstallerIcon: desktop/icon.ico
+  installerHeaderIcon: desktop/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Meridian Final
+  uninstallDisplayName: Meridian Final
+  license: desktop/eula.txt
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  artifactName: MeridianFinal-Setup-${version}.${ext}

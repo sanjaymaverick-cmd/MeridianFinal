@@ -10,7 +10,7 @@ Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 - **Research** — rank the query or return empty
 - **Advice** — spot / futures / options cards. Always “(not an order)”
 
-**Run on your PC:** see [LOCAL.md](LOCAL.md) (`run.bat` on Windows, `run.sh` on macOS/Linux).
+**Run on your PC:** Windows setup exe (`npm run dist:win` → `release/MeridianFinal-Setup-1.0.0.exe`), or [LOCAL.md](LOCAL.md) (`run.bat` / `run.sh`).
 
 Test login: `WQ3137` / `Test@password`
 

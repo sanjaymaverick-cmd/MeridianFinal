@@ -1,7 +1,15 @@
 MERIDIAN FINAL — run on your PC
 ================================
 
-Windows:
+Windows installer (no Node install):
+  1. Run  release\MeridianFinal-Setup-1.0.0.exe
+     (or build it: npm run dist:win)
+  2. Start Menu → Meridian Final
+  3. Login  WQ3137   /   Test@password
+  Closing the window hides the desk; paper keeps running in the tray.
+  Quit from the tray to stop.
+
+Windows from source:
   1. Install Node.js 22 LTS from https://nodejs.org  (tick "Add to PATH")
   2. Unzip this folder to  D:\work Dir\MeridianFinal
   3. Double-click  run.bat

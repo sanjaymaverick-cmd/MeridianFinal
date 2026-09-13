@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { meridianDataDir } from "@/lib/server/paths";
 import { artefactFromFit, getArtefact, setArtefact, type ArtefactStatus } from "@/lib/meridian/artefact";
 import { shouldPromote } from "@/lib/meridian/kelly";
 import { FEATURE_KEYS, emptyFeatures, packFeatures, type FeatureVec } from "@/lib/meridian/features";
 import { FIT_MIN_N } from "@/lib/meridian/kelly";
 import { fitLogistic, hitRate, predictRow, rocAuc, timeSplit } from "@/lib/meridian/logistic";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const ARTEFACT_PATH = path.join(DATA_DIR, "meta-artefact.json");
 

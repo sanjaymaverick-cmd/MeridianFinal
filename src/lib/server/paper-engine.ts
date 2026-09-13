@@ -1,6 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getSql } from "@/lib/db";
+import { meridianDataDir } from "@/lib/server/paths";
 import { UNIVERSE, factorParts } from "@/lib/meridian/universe";
 import { compositeScore } from "@/lib/meridian/scoring";
 import { SNAPSHOT } from "@/lib/meridian/tickers";
@@ -265,7 +266,7 @@ function featuresFor(eng: Engine, sym: string, u: (typeof UNIVERSE)[number], sco
   return f;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const HEARTBEAT = path.join(DATA_DIR, "paper-heartbeat.json");
 

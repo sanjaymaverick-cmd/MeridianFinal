@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meridian Final</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0a0b0c;
+        color: #c8ccd4;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      main {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        letter-spacing: 0.14em;
+      }
+      .mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 14px;
+        background: #121417;
+        border: 1px solid #1c2026;
+        display: grid;
+        place-items: center;
+        font-weight: 650;
+        font-size: 28px;
+        letter-spacing: 0;
+      }
+      h1 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: #8b9098;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+      }
+      .bar {
+        width: 168px;
+        height: 2px;
+        background: #1c2026;
+        overflow: hidden;
+        border-radius: 1px;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        background: #c8ccd4;
+        animation: slide 1.2s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% {
+          transform: translateX(-120%);
+        }
+        100% {
+          transform: translateX(340%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">M</div>
+      <h1>MERIDIAN FINAL</h1>
+      <div class="bar"><i></i></div>
+      <p>Starting paper desk · not an order</p>
+    </main>
+  </body>
+</html>

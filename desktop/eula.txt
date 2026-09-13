@@ -1,0 +1,13 @@
+Meridian Final — paper desk
+
+This is personal paper software. It is not Kite, not a broker, and nothing
+in it is an order.
+
+The book starts at a mock ₹10,00,000. Live trading stays off.
+
+You can lose the whole paper book. There is no warranty.
+
+Crypto last is public Binance USDT. NSE cash and F&O wait for the cash session.
+
+Closing the window hides the desk; the paper loop keeps running in the tray.
+Quit from the tray to stop.

@@ -4,13 +4,23 @@ Paper desk. Live Binance last for crypto fills. NSE/Yahoo when the cash session 
 
 ## What you need
 
-- **Node.js 22 LTS** — [https://nodejs.org](https://nodejs.org) (include npm)
-- Windows, macOS, or Linux
-- Unzip this folder, e.g. `D:\work Dir\MeridianFinal`
+- **Windows installer** — `MeridianFinal-Setup-*.exe` (no Node.js)
+- **From source** — **Node.js 22 LTS** — [https://nodejs.org](https://nodejs.org) (include npm), Windows / macOS / Linux, unzip this folder
 
 No Postgres required. The app uses embedded PGLite unless you set `DATABASE_URL`.
 
-## Quick start (Windows)
+## Windows installer
+
+No Node.js install. Double-click **`MeridianFinal-Setup-1.0.0.exe`** (build it with `npm run dist:win` from this repo).
+
+- Installs a Start Menu + desktop shortcut **Meridian Final**
+- Opens the paper desk in its own window on `127.0.0.1`
+- Book + PGLite live in `%APPDATA%\Meridian Final` (survives reinstall)
+- Close the window → desk stays in the tray (overnight paper). **Quit** from the tray to stop.
+
+Unsigned personal software — Windows SmartScreen may warn once.
+
+## Quick start (Windows, from source)
 
 1. Unzip to `D:\work Dir\MeridianFinal`
 2. Double-click **`run.bat`**
