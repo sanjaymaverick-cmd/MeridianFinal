@@ -4,7 +4,7 @@ export { explainReason } from "./reasons";
 export const MODE_CHIPS = [
   { id: "advisory" as const, label: "Signals", hint: "Propose. Do not send." },
   { id: "paper" as const, label: "Paper", hint: "Farm labels. Kite off." },
-  { id: "auto" as const, label: "Auto", hint: "Overnight paper loop. Same book, still not live." },
+  { id: "auto" as const, label: "Auto", hint: "Paper auto-send. Overnight farm. Kite off." },
 ];
 
 export type PromotionMeta = {

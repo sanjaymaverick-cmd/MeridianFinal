@@ -11,6 +11,7 @@ const REASON_PART: Record<string, string> = {
   farm: "Farm",
   pnl: "PnL sleeve",
   live: "paper quote",
+  paper: "paper quote",
   delayed: "delayed quote",
   model: "model quote",
   passed_gates: "passed gates",

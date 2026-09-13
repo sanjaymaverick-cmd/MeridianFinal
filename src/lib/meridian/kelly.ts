@@ -19,7 +19,7 @@ export function kellySizePct(p: number, stopPct: number, maxSize: number): numbe
   return clamp(raw, 0, maxSize);
 }
 
-export function shouldPromote(n: number, auc: number, source: "synth" | "paper", hitRate = 1): boolean {
+export function shouldPromote(n: number, auc: number, source: "synth" | "paper", hitRate = 0): boolean {
   if (source !== "paper") return false;
   if (n < PROMOTE_MIN_N) return false;
   if (auc < PROMOTE_MIN_AUC) return false;
