@@ -294,6 +294,18 @@ export function openSkipReason(args: {
   const feed = args.feed ?? "";
   if (!args.openSession && isNseHoursOnly(args.symbol, feed)) return "nse_session_closed";
   if (isCryptoFo(args.symbol) && (!feed.startsWith("binance") || args.delayed)) return "stale_model";
+  const symU = args.symbol.toUpperCase();
+  // Word-safe: do NOT use /PE|CE/ (that blocked PEPE and friends).
+  if (
+    symU.endsWith("PERP") ||
+    symU.endsWith("FUT") ||
+    isFoSymbol(args.symbol) ||
+    isCryptoFo(args.symbol)
+  ) {
+    return "no_leverage";
+  }
+  const SPOT_OK = new Set(["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","ATOM","FIL","APT","ARB","OP","INJ","TIA","SEI","PEPE","WIF","BONK","RENDER","FET","TAO","PAXG"]);
+  if (!SPOT_OK.has(symU)) return "universe_filter";
   const fam = cryptoFamily(args.symbol);
   if (fam && args.positions.some((p) => (p.sleeve ?? "farm") === sleeve && cryptoFamily(p.symbol) === fam)) {
     return "family_open";

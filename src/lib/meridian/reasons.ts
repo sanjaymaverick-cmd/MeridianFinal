@@ -25,6 +25,8 @@ const REASON_PART: Record<string, string> = {
   block_operator: "blocked by you",
   family_net: "closed overlapping name",
   family_open: "same coin already open",
+  no_leverage: "spot only — no perp/option",
+  universe_filter: "outside farm universe",
   stale_model: "stale model quote — flattened",
   nse_session_closed: "NSE session closed",
   night_crypto_only: "night: crypto only",

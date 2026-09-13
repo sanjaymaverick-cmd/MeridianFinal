@@ -175,7 +175,7 @@ const CASH_WATCH = [
   "USDINR",
   "NIFTYFUT",
 ];
-const FARM_CRYPTO = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","TAO","PAXG"];
+const FARM_CRYPTO = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","ATOM","FIL","APT","ARB","OP","INJ","TIA","SEI","PEPE","WIF","BONK","RENDER","FET","TAO","PAXG"] as const;
 
 function unique(xs: string[]) {
   return [...new Set(xs)];
@@ -197,15 +197,11 @@ function cryptoHours(sym: string, feed: string | undefined, assetClass?: string)
   return assetClass === "crypto" || isCryptoFo(sym) || (feed ?? "").startsWith("binance");
 }
 
-function farmWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
-  const fo = foWatchSymbols(live, feed);
-  const nseFo = fo.filter((s) => isNseHoursOnly(s, feed[s]));
-  const cryptoFo = fo.filter((s) => isCryptoFo(s) && (feed[s] ?? "").startsWith("binance"));
+function farmWatch(live: Record<string, number>, _feed: Record<string, string>, _openSession: boolean) {
+  // Until meta promotes, farm may trade full spot universe (incl majors) for quality holds.
+  // After promote, reserve BTC/ETH/SOL for the pnl sleeve.
   const reserved = getArtefact().promoted ? new Set<string>(PNL_CRYPTO) : new Set<string>();
-  const liveMajors = Object.keys(live).filter((s) => (FARM_CRYPTO.includes(s) || s.endsWith("PERP")) && !reserved.has(s));
-  const crypto = liveMajors.length ? liveMajors : FARM_CRYPTO.slice(0, 8).filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s));
-  const cash = openSession ? CASH_WATCH.filter((s) => (live[s] ?? 0) > 0) : [];
-  return unique([...crypto, ...cryptoFo, ...(openSession ? nseFo : []), ...cash]);
+  return unique(FARM_CRYPTO.filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s)));
 }
 
 function pnlWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
@@ -319,7 +315,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 20;
+const ENGINE_REV = 31;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -331,8 +327,8 @@ function seedTicks() {
 function emptyEngine(): Engine {
   const ticks = seedTicks();
   return {
-    mode: "auto",
-    killed: false,
+    mode: "advisory",
+    killed: true,
     positions: [],
     fills: [],
     ticks,
@@ -648,7 +644,7 @@ async function tickUnlocked() {
         side: closeSide,
         qty: pos.qty,
         price: px,
-        reason: `${intent.reason}:${pos.side}:${label}`,
+        reason: `${intent.reason}:${pos.side}:paper`,
         quoteLabel: label,
         sleeve: pos.sleeve,
         ...extra,
@@ -718,7 +714,47 @@ async function tickUnlocked() {
     }
   }
   positions = still;
-
+  const ALLOWED_SPOT = new Set<string>(FARM_CRYPTO.map((s) => s.toUpperCase()));
+  const POS_CAP = FARM_PROFILE.MAX_POS + PNL_PROFILE.MAX_POS;
+  {
+    const prefer = (sym: string) => {
+      const u = sym.toUpperCase();
+      const maj = ["BTC", "ETH", "SOL"].indexOf(u);
+      if (maj >= 0) return maj;
+      const i = (FARM_CRYPTO as readonly string[]).indexOf(u);
+      return i >= 0 ? 10 + i : 999;
+    };
+    const keep = positions
+      .filter((p) => ALLOWED_SPOT.has(p.symbol.toUpperCase()))
+      .sort((a, b) => prefer(a.symbol) - prefer(b.symbol))
+      .slice(0, Math.max(POS_CAP, 0));
+    const keepSet = new Set(keep.map((p) => p.symbol));
+    const drop = positions.filter((p) => !keepSet.has(p.symbol));
+    for (const pos of drop) {
+      const mid = eng.live[pos.symbol] || eng.ticks[pos.symbol] || pos.entryPrice;
+      const closeSide = pos.side === "short" ? "BUY" : "SELL";
+      const cls = clsFor(pos.symbol, eng);
+      const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
+      const pnl = pnlOf(pos, px);
+      const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
+      const fill: Fill = {
+        id: `cap_${pos.symbol}_${now}`,
+        ts: now,
+        symbol: pos.symbol,
+        side: closeSide,
+        qty: pos.qty,
+        price: px,
+        reason: `${ALLOWED_SPOT.has(pos.symbol.toUpperCase()) ? "max_positions" : "universe_filter"}:${pos.side}:paper`,
+        quoteLabel: quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]),
+        sleeve: pos.sleeve,
+        ...extra,
+      };
+      eng.fills = [fill, ...eng.fills].slice(0, 400);
+      eng.dailyPnl += pnl;
+      eng.cooldownUntil[pos.symbol] = now + 90_000;
+    }
+    positions = keep;
+  }
   const scan: ScanRow[] = [];
   const art = getArtefact();
 
@@ -746,7 +782,7 @@ async function tickUnlocked() {
           minutesSinceMidnight: clock.minutesSinceMidnight,
           beliefPosterior: 0.25,
           portfolioHeat: heat,
-          metaProb: art.promoted ? predictMetaProb(f) : undefined,
+          metaProb: predictMetaProb(f),
         },
         {
           dailyPnl: eng.dailyPnl,
@@ -862,7 +898,7 @@ async function tickUnlocked() {
         side: side === "long" ? "BUY" : "SELL",
         qty,
         price: px,
-        reason: `${sleeve}:${pos.reasonOpen}:${label}`,
+        reason: `${sleeve}:${pos.reasonOpen}:paper`,
         quoteLabel: label,
         sleeve,
         ...extra,
@@ -872,7 +908,7 @@ async function tickUnlocked() {
     }
   }
 
-  const farmList = unique([...(eng.extraWatch ?? []), ...farmWatch(eng.live, eng.liveFeed, clock.openSession)]);
+  const farmList = unique([...((eng.extraWatch ?? []).filter((s) => (FARM_CRYPTO as readonly string[]).includes(s.toUpperCase()))), ...farmWatch(eng.live, eng.liveFeed, clock.openSession)]);
   const execute = (eng.mode === "auto" || eng.mode === "paper") && !eng.killed;
   await openSleeve("farm", farmList, FARM_PROFILE, execute);
   await openSleeve("pnl", pnlWatch(eng.live, eng.liveFeed, clock.openSession), PNL_PROFILE, execute);
@@ -937,8 +973,8 @@ export function startPaperEngine() {
   if (g.__meridianPaper) clearInterval(g.__meridianPaper.timer);
   const eng = g.__meridianPaper?.eng ?? emptyEngine();
   if (!g.__meridianPaper?.eng) {
-    eng.mode = "paper";
-    eng.killed = false;
+    eng.mode = "advisory";
+    eng.killed = true;
   }
   eng.liveFeed ??= {};
   eng.delayed ??= {};
@@ -1029,7 +1065,8 @@ export function resetEngine() {
   const extraWatch = prev?.eng.extraWatch ?? [];
   const quality = prev?.eng.quality;
   const eng = emptyEngine();
-  eng.mode = prev?.eng.mode ?? "paper";
+  eng.mode = prev?.eng.mode ?? "advisory";
+  eng.killed = prev?.eng.killed ?? true;
   eng.blocked = blocked;
   eng.extraWatch = extraWatch;
   if (quality) eng.quality = quality;
@@ -1112,6 +1149,7 @@ function flattenNow(e: Engine, symbol: string, now: number) {
     const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
     const pnl = pnlOf(pos, px);
     const extra = foFields(pos.symbol, e.foMeta[pos.symbol]);
+    const label = quoteLabelOf(e.liveFeed[pos.symbol], e.delayed[pos.symbol]);
     const fill: Fill = {
       id: `${now}-${pos.symbol}-flat-${Math.random().toString(16).slice(2, 8)}`,
       ts: now,
@@ -1119,8 +1157,8 @@ function flattenNow(e: Engine, symbol: string, now: number) {
       side: closeSide,
       qty: pos.qty,
       price: px,
-      reason: `flatten_operator:${pos.side}:live`,
-      quoteLabel: "live",
+      reason: `flatten_operator:${pos.side}:paper`,
+      quoteLabel: label,
       sleeve: pos.sleeve,
       ...extra,
     };
@@ -1161,6 +1199,7 @@ function openNow(
   const qty = qtyIn && qtyIn > 0 ? qtyIn : qtyFor(symbol, px, sizePct, e.ticks);
   if (qty <= 0) return "zero_size";
   const extra = foFields(symbol, e.foMeta[symbol]);
+  const label = quoteLabelOf(e.liveFeed[symbol], e.delayed[symbol]);
   const pos: Position = {
     symbol,
     side,
@@ -1182,7 +1221,7 @@ function openNow(
     expiry: extra.expiry,
     strike: extra.strike,
     right: extra.right,
-    quoteLabel: "live",
+    quoteLabel: label,
     sleeve,
     costBps: roundTripBps(cls),
   };
@@ -1194,8 +1233,8 @@ function openNow(
     side: side === "long" ? "BUY" : "SELL",
     qty,
     price: px,
-    reason: `${sleeve}:${reason}:live`,
-    quoteLabel: "live",
+    reason: `${sleeve}:${reason}:paper`,
+    quoteLabel: label,
     sleeve,
     ...extra,
   };

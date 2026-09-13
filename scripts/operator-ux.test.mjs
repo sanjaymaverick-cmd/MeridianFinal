@@ -70,7 +70,7 @@ test("auto/paper scan gates match execute: family, stale model, NSE hours", () =
       openSession: false,
       positions: book,
     });
-    if (opt !== "family_open") throw new Error("BTC option vs BTC spot: " + opt);
+    if (opt !== "no_leverage") throw new Error("BTC option vs BTC spot: " + opt);
 
     const perp = openSkipReason({
       symbol: "BTCPERP",
@@ -79,7 +79,16 @@ test("auto/paper scan gates match execute: family, stale model, NSE hours", () =
       openSession: false,
       positions: book,
     });
-    if (perp !== "family_open") throw new Error("BTCPERP vs BTC: " + perp);
+    if (perp !== "no_leverage") throw new Error("BTCPERP vs BTC: " + perp);
+
+    const fam = openSkipReason({
+      symbol: "BTC",
+      sleeve: "farm",
+      feed: "binance",
+      openSession: false,
+      positions: book,
+    });
+    if (fam !== "family_open") throw new Error("BTC vs BTC family: " + fam);
 
     const doge = openSkipReason({
       symbol: "DOGE",
@@ -118,7 +127,7 @@ test("auto/paper scan gates match execute: family, stale model, NSE hours", () =
       openSession: false,
       positions: [],
     });
-    if (liveOpt) throw new Error("live binance opt should send: " + liveOpt);
+    if (liveOpt !== "no_leverage") throw new Error("live binance opt should be spot-only: " + liveOpt);
 
     const text = explainReason("farm:family_open");
     if (!/already open/i.test(text)) throw new Error("family_open copy: " + text);
@@ -129,4 +138,27 @@ test("auto/paper scan gates match execute: family, stale model, NSE hours", () =
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /id: "auto" as const, label: "Auto"/);
+});
+
+test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  const desk = readFileSync(join(root, "../src/lib/server/desk.ts"), "utf8");
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  const rev = engine.match(/const ENGINE_REV = (\d+)/);
+  assert.ok(rev && Number(rev[1]) >= 21, "ENGINE_REV " + rev?.[1]);
+  const empty = engine.slice(engine.indexOf("function emptyEngine"), engine.indexOf("function emptyEngine") + 400);
+  assert.match(empty, /mode:\s*"advisory"/);
+  assert.match(empty, /killed:\s*true/);
+  assert.match(engine, /flatten_operator:\$\{pos\.side\}:paper/);
+  assert.match(engine, /\$\{sleeve\}:\$\{reason\}:paper/);
+  assert.match(engine, /\$\{intent\.reason\}:\$\{pos\.side\}:paper/);
+  assert.match(engine, /\$\{sleeve\}:\$\{pos\.reasonOpen\}:paper/);
+  assert.doesNotMatch(engine, /:live`/);
+  assert.match(shell, /Resume paper/);
+  assert.doesNotMatch(shell, /\bArm\b/);
+  const flags = desk.slice(desk.indexOf("export const setPaperFlags"), desk.indexOf("export const resetPaperBook"));
+  const reset = desk.slice(desk.indexOf("export const resetPaperBook"), desk.indexOf("export const getPaperSamples"));
+  assert.match(flags, /authMiddleware/);
+  assert.match(reset, /authMiddleware/);
+  assert.match(desk, /runPaperOp[\s\S]{0,80}authMiddleware/);
 });

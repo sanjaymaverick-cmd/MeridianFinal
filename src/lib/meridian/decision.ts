@@ -18,6 +18,8 @@ export const MAX_MINUTES_TO_EOD = 30;
 export const MAX_POS_LIVE = 2;
 export const MAX_SIZE_LIVE = 0.1;
 export const PAPER_BUDGET = 1_000_000;
+/** Operator daily target (paper). Not a guarantee. */
+export const DAILY_TARGET_INR = 10_000;
 export const PNL_CRYPTO = ["BTC", "ETH", "SOL"] as const;
 
 export type SleeveProfile = {
@@ -40,26 +42,26 @@ export type SleeveProfile = {
 };
 
 export const FARM_PROFILE: SleeveProfile = {
-  MIN_META_PROB: 0.5,
+  MIN_META_PROB: 0.48,
   MAX_HEAT: 0.5,
-  MIN_HOLD_SEC: 25,
-  TIME_STOP_SEC: 90,
-  MAX_SIZE: 0.05,
+  MIN_HOLD_SEC: 120,
+  TIME_STOP_SEC: 900,
+  MAX_SIZE: 0.03,
   TP_R: 0.55,
   TRAIL_ARM_R: 0.35,
   TRAIL_GIVEBACK_R: 0.1,
   STOP_PCT_MIN: 0.006,
   STOP_PCT_MAX: 0.035,
   COOLDOWN_SEC: 90,
-  DAILY_LOSS_LIMIT: -80_000,
+  DAILY_LOSS_LIMIT: -2_000,
   MAX_POS: 16,
-  SIZE_FLOOR: 0.02,
-  SIZE_CEIL: 0.04,
+  SIZE_FLOOR: 0.015,
+  SIZE_CEIL: 0.03,
   kelly: false,
 };
 
 export const PNL_PROFILE: SleeveProfile = {
-  MIN_META_PROB: 0.58,
+  MIN_META_PROB: 0.48,
   MAX_HEAT: 0.4,
   MIN_HOLD_SEC: 120,
   TIME_STOP_SEC: 0,
@@ -70,9 +72,9 @@ export const PNL_PROFILE: SleeveProfile = {
   STOP_PCT_MIN: 0.01,
   STOP_PCT_MAX: 0.045,
   COOLDOWN_SEC: 180,
-  DAILY_LOSS_LIMIT: -100_000,
+  DAILY_LOSS_LIMIT: -2_000,
   MAX_POS: 4,
-  SIZE_FLOOR: 0.02,
+  SIZE_FLOOR: 0.03,
   SIZE_CEIL: 0.08,
   kelly: true,
 };
@@ -95,7 +97,7 @@ export const MAX_POS_PAPER = FARM_PROFILE.MAX_POS + PNL_PROFILE.MAX_POS;
 export const SIZE_FLOOR = FARM_PROFILE.SIZE_FLOOR;
 export const SIZE_CEIL = FARM_PROFILE.SIZE_CEIL;
 export const SHORT_META_HIGH = 1 - FARM_PROFILE.MIN_META_PROB;
-export const SHORT_META_LOW = 0.32;
+export const SHORT_META_LOW = 0.40;
 
 export type TradeAction = "BUY" | "SELL" | "HOLD" | "FLAT";
 
@@ -173,20 +175,11 @@ function rMultiple(pos: Position, px: number) {
 }
 
 export function scoreSignal(sig: Signal): number {
-  if (sig.metaProb != null && Number.isFinite(sig.metaProb)) {
-    return clamp(sig.metaProb, 0, 1);
-  }
-  const stop = STOP_ATR_MULT * finite(sig.atrPct);
-  const art = predictMetaProb({
-    confidence: finite(sig.confidence),
-    confluence: finite(sig.confluence),
-    p_success: finite(sig.pSuccess),
-    atr_pct: finite(sig.atrPct),
-    approx_stop_pct: stop,
-    minutes_since_midnight: finite(sig.minutesSinceMidnight, 550),
-    minutes_to_eod_flatten: finite(sig.minutesToEod, 32),
-  });
-  return clamp(0.2 * art + 0.8 * finite(sig.pSuccess, 0.55), 0, 1);
+  const base = finite(sig.pSuccess, 0.55);
+  const conf = clamp(finite(sig.confidence, 0.55), 0, 1);
+  const meta = sig.metaProb != null && Number.isFinite(sig.metaProb) ? clamp(Number(sig.metaProb), 0, 1) : 0.5;
+  // Paper fix: collapsed meta (~0.39) was forcing 100% fade_shorts.
+  return clamp(0.20 * meta + 0.35 * base + 0.45 * conf, 0, 1);
 }
 
 function sizeFromEdge(edge: number, heat: number, sizeCap: number) {
