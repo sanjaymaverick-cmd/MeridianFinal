@@ -2,7 +2,7 @@ MERIDIAN FINAL — run on your PC
 ================================
 
 Windows installer (no Node install):
-  1. Run  release\MeridianFinal-Setup-1.0.0.exe
+  1. Run  release\MeridianFinal-Setup-1.0.1.exe
      (or build it: npm run dist:win)
   2. Start Menu → Meridian Final
   3. Login  WQ3137   /   Test@password

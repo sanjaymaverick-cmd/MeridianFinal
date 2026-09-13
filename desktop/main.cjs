@@ -22,11 +22,82 @@ let deskChild = null;
 let allowQuit = false;
 let balloonShown = false;
 let deskPort = DESK_PORT_START;
+let resolvedDesk = null;
 const logLines = [];
 
-function deskRoot() {
+function installDeskRoot() {
   if (app.isPackaged) return path.join(process.resourcesPath, "desk");
   return app.getAppPath();
+}
+
+function deskRoot() {
+  return resolvedDesk || installDeskRoot();
+}
+
+function dirWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, `.meridian-write-${process.pid}`);
+    fs.writeFileSync(p, "ok");
+    fs.unlinkSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function localRuntimeDir() {
+  const local = process.env.LOCALAPPDATA;
+  if (local) return path.join(local, "Meridian Final", "runtime");
+  return path.join(userData(), "runtime");
+}
+
+function mirrorDesk(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  const r = spawnSync(
+    "robocopy",
+    [
+      src,
+      dest,
+      "/E",
+      "/XO",
+      "/NFL",
+      "/NDL",
+      "/NJH",
+      "/NJS",
+      "/NC",
+      "/NS",
+      "/NP",
+      "/XD",
+      ".vite",
+      ".vite-temp",
+      ".tanstack",
+      ".nitro",
+    ],
+    { windowsHide: true },
+  );
+  const code = r.status == null ? 16 : r.status;
+  if (code >= 8) {
+    fs.cpSync(src, dest, { recursive: true, force: true });
+  }
+}
+
+function prepareDeskRoot() {
+  const src = installDeskRoot();
+  if (dirWritable(path.join(src, "node_modules"))) return src;
+  const dest = localRuntimeDir();
+  const stamp = path.join(dest, ".meridian-runtime");
+  const ver = app.getVersion();
+  const fresh =
+    !fs.existsSync(stamp) ||
+    fs.readFileSync(stamp, "utf8").trim() !== ver ||
+    !dirWritable(path.join(dest, "node_modules"));
+  if (fresh) {
+    appendLog(`install dir not writable; mirroring desk → ${dest}`);
+    mirrorDesk(src, dest);
+    fs.writeFileSync(stamp, ver);
+  }
+  return dest;
 }
 
 function iconPath() {
@@ -80,7 +151,12 @@ function deskEnv(port) {
     HOST: DESK_HOST,
     PORT: String(port),
     BROWSER: "none",
+    VITE_CACHE_DIR: path.join(userData(), "vite-cache"),
+    TEMP: path.join(userData(), "tmp"),
+    TMP: path.join(userData(), "tmp"),
   };
+  fs.mkdirSync(env.VITE_CACHE_DIR, { recursive: true });
+  fs.mkdirSync(env.TEMP, { recursive: true });
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ASAR;
   return env;
@@ -300,6 +376,8 @@ async function boot() {
     appendLog(`window failed: ${err instanceof Error ? err.stack : err}`);
   }
   try {
+    resolvedDesk = prepareDeskRoot();
+    appendLog(`desk cwd=${resolvedDesk}`);
     deskPort = await findPort(DESK_PORT_START);
     startDesk(deskPort);
     await waitUntilReady(deskPort, { aborted: false });

@@ -76,7 +76,7 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  allowElevation: true
+  allowElevation: false
   allowToChangeInstallationDirectory: true
   installerIcon: desktop/icon.ico
   uninstallerIcon: desktop/icon.ico

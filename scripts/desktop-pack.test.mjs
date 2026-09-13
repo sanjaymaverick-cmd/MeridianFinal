@@ -28,6 +28,9 @@ test("Windows setup is an NSIS installer wrapping the paper desk", () => {
   assert.match(main, /PGLITE_DATA_DIR/);
   assert.match(main, /\/api\/desk\/ready/);
   assert.match(main, /Not Kite/);
+  assert.match(main, /prepareDeskRoot/);
+  assert.match(main, /LOCALAPPDATA/);
+  assert.match(yml, /allowElevation: false/);
 
   const paths = readFileSync(join(root, "src", "lib", "server", "paths.ts"), "utf8");
   assert.match(paths, /MERIDIAN_DATA_DIR/);

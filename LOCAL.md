@@ -11,7 +11,7 @@ No Postgres required. The app uses embedded PGLite unless you set `DATABASE_URL`
 
 ## Windows installer
 
-No Node.js install. Double-click **`MeridianFinal-Setup-1.0.0.exe`** (build it with `npm run dist:win` from this repo).
+No Node.js install. Double-click **`MeridianFinal-Setup-1.0.1.exe`** (build it with `npm run dist:win` from this repo). Do not install into Program Files — Vite needs a writable folder. Per-user install is the default. If an older copy is already under Program Files, uninstall it first; 1.0.1 will also mirror the desk into `%LOCALAPPDATA%\Meridian Final\runtime`.
 
 - Installs a Start Menu + desktop shortcut **Meridian Final**
 - Opens the paper desk in its own window on `127.0.0.1`
