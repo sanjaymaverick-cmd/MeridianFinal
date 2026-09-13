@@ -215,13 +215,10 @@ export function atmPremium(spot: number, sigma: number, days: number) {
 export function isFoSymbol(sym: string): boolean {
   if (parseFo(sym)) return true;
   const u = sym.toUpperCase();
-  return (
-    u.endsWith("FUT") ||
-    u.endsWith("PERP") ||
-    u.endsWith("CE") ||
-    u.endsWith("PE") ||
-    u === "BTCCM"
-  );
+  if (OPTION_STUBS.has(u) || u === "BTCCM") return true;
+  if (u.endsWith("FUT") || u.endsWith("PERP")) return true;
+  // Require a strike digit so RELIANCE / PEPE are not F&O.
+  return /\d\s*(CE|PE)$/.test(u);
 }
 
 export function isCryptoFo(sym: string): boolean {

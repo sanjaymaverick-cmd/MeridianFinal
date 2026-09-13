@@ -156,6 +156,7 @@ export type Position = {
   entryMid?: number;
   costBps?: number;
   features?: Record<string, number>;
+  farmBucket?: "core" | "tail" | "other";
 };
 
 function finite(x: unknown, d = 0) {

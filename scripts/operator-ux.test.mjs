@@ -162,3 +162,69 @@ test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () 
   assert.match(reset, /authMiddleware/);
   assert.match(desk, /runPaperOp[\s\S]{0,80}authMiddleware/);
 });
+
+test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not fill", () => {
+  const src = `
+    import { openSkipReason } from ${JSON.stringify(fo)};
+    const FARM_CORE = ["BTC", "ETH", "SOL", "BNB"];
+    const FARM_TAIL = ["XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "LTC", "BCH", "NEAR", "SUI", "AAVE", "UNI", "ATOM", "FIL", "APT", "ARB", "OP", "INJ", "TIA", "SEI", "PEPE", "WIF", "BONK", "RENDER", "FET", "TAO", "PAXG"];
+    const CASH_WATCH = ["HDFCBANK", "ICICIBANK", "RELIANCE", "TCS", "INFY", "LT", "POLYCAB"];
+    const COMMODITY_WATCH = ["GOLD", "SILVER", "CRUDE", "COPPER", "NATGAS"];
+    function farmBucket(sym) {
+      const u = String(sym).toUpperCase();
+      if (FARM_CORE.includes(u)) return "core";
+      if (FARM_TAIL.includes(u)) return "tail";
+      return "other";
+    }
+    function autoCanSend(mode, killed) { return (mode === "auto" || mode === "paper") && !killed; }
+    function autoOpenSkip(args) {
+      const skip = openSkipReason(args);
+      if (skip) return skip;
+      if (args.sleeve === "pnl") return null;
+      const bucket = farmBucket(args.symbol);
+      if (bucket === "other") return "universe_filter";
+      if (bucket === "tail" && !args.farmTail) return "tail_off";
+      return null;
+    }
+
+    if (!FARM_CORE.includes("BTC") || farmBucket("BTC") !== "core") throw new Error("core BTC");
+    if (farmBucket("XRP") !== "tail") throw new Error("tail XRP");
+    if (CASH_WATCH.includes("GOLD") || CASH_WATCH.includes("NIFTYFUT") || CASH_WATCH.includes("CRUDE") || CASH_WATCH.includes("USDINR")) {
+      throw new Error("CASH_WATCH must be NSE cash only");
+    }
+    if (!COMMODITY_WATCH.includes("GOLD") || !COMMODITY_WATCH.includes("CRUDE")) throw new Error("commodity watch");
+
+    const base = { sleeve: "farm", feed: "binance", delayed: false, openSession: false, positions: [], farmTail: false };
+    const btc = autoOpenSkip({ ...base, symbol: "BTC" });
+    if (btc) throw new Error("Auto+BTC should open: " + btc);
+    const xrp = autoOpenSkip({ ...base, symbol: "XRP" });
+    if (xrp !== "tail_off") throw new Error("tail off: " + xrp);
+    const xrpOn = autoOpenSkip({ ...base, symbol: "XRP", farmTail: true });
+    if (xrpOn) throw new Error("tail on should open: " + xrpOn);
+
+    const blocked = new Set(["nse_session_closed", "no_leverage", "universe_filter", "stale_model", "tail_off"]);
+    const nifty = autoOpenSkip({ ...base, symbol: "NIFTYFUT", feed: "nse-opt-model", openSession: true });
+    if (!blocked.has(nifty ?? "")) throw new Error("NIFTYFUT fill: " + nifty);
+    const rel = autoOpenSkip({ ...base, symbol: "RELIANCE", feed: "yahoo", openSession: true });
+    if (!blocked.has(rel ?? "")) throw new Error("RELIANCE fill: " + rel);
+    const gold = autoOpenSkip({ ...base, symbol: "GOLD", feed: "yahoo", openSession: true });
+    if (!blocked.has(gold ?? "")) throw new Error("GOLD fill: " + gold);
+
+    if (autoCanSend("auto", true)) throw new Error("paused must not open");
+    if (!autoCanSend("auto", false)) throw new Error("Auto unkilled should send");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /autoCanSend\(eng\.mode, eng\.killed\)/);
+  assert.doesNotMatch(engine, /if \(halted && !staleCrypto/);
+  const watches = readFileSync(join(root, "../src/lib/meridian/paper-watch.ts"), "utf8");
+  assert.match(watches, /CASH_WATCH = \["HDFCBANK", "ICICIBANK", "RELIANCE", "TCS", "INFY", "LT", "POLYCAB"\]/);
+  assert.match(watches, /COMMODITY_WATCH = \["GOLD"/);
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /crypto spot only/i);
+  const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(chips, /Crypto spot farm/);
+});

@@ -66,8 +66,8 @@ function AutoPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
           <h1 className="mt-1 font-display text-4xl">Paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Signals proposes and still runs stops. Paper and Auto
-            both send farm clips. Flatten or skip a single name here — you are not a spectator.
+            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Auto fills are crypto spot only (core: BTC ETH SOL
+            BNB). Cash, F&O, and MCX/COMEX estimates are propose-only — they never Auto-send. Pause still runs stops.
           </p>
         </div>
 
@@ -127,7 +127,7 @@ function AutoPage() {
           <Kpi label="Heat" value={`${(heat * 100).toFixed(0)}%`} sub="farm + pnl size" ring={<HeatRing heat={heat} cap={0.9} />} />
           <Kpi
             label="Meta"
-            value={paper.data?.meta?.promoted ? "armed" : "not ready"}
+            value={paper.data?.meta?.promoted ? "ready" : "not ready"}
             sub={`n ${paper.data?.meta?.n ?? 0} · hit ${((paper.data?.meta?.hitRate ?? 0) * 100).toFixed(0)}%`}
           />
         </div>
@@ -138,12 +138,12 @@ function AutoPage() {
           </h2>
           <p className="mt-1 text-xs text-subtle">
             {killed
-              ? "Open risk still here. Stops paused. Resume paper from Halt in the header."
+              ? "No new clips. Open risk still here — hard stop, time stop, trail, and session exits still run. Resume paper from Halt."
               : mode === "advisory"
-                ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run."
+                ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run. Cash/F&O/MCX stay propose-only."
                 : mode === "auto"
-                  ? "Auto is sending farm clips on its own. Skip a name or flatten an open clip."
-                  : "Paper is sending farm clips. Skip a name or flatten an open clip."}
+                  ? "Auto is sending crypto spot only. Skip a name or flatten an open clip. Cash, F&O, MCX do not fill."
+                  : "Paper is sending crypto spot. Skip a name or flatten an open clip."}
           </p>
           {scan.length === 0 ? (
             <p className="mt-3 text-sm text-muted">Waiting on the next scan tick.</p>

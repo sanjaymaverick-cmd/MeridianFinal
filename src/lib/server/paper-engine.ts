@@ -55,6 +55,15 @@ import {
   parseFo,
 } from "@/lib/meridian/fo-contracts";
 import { formatIstStamp } from "@/lib/utils";
+import {
+  FARM_CORE,
+  FARM_CRYPTO,
+  CASH_WATCH,
+  COMMODITY_WATCH,
+  autoCanSend,
+  autoOpenSkip,
+  farmBucket,
+} from "@/lib/meridian/paper-watch";
 
 type QuoteLabel = "live" | "delayed" | "model";
 
@@ -162,21 +171,6 @@ function nameStub(sym: string, last: number): UniverseName {
   return cryptoStub(sym, last);
 }
 
-const CASH_WATCH = [
-  "HDFCBANK",
-  "ICICIBANK",
-  "RELIANCE",
-  "TCS",
-  "INFY",
-  "LT",
-  "POLYCAB",
-  "GOLD",
-  "CRUDE",
-  "USDINR",
-  "NIFTYFUT",
-];
-const FARM_CRYPTO = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","ATOM","FIL","APT","ARB","OP","INJ","TIA","SEI","PEPE","WIF","BONK","RENDER","FET","TAO","PAXG"] as const;
-
 function unique(xs: string[]) {
   return [...new Set(xs)];
 }
@@ -197,19 +191,27 @@ function cryptoHours(sym: string, feed: string | undefined, assetClass?: string)
   return assetClass === "crypto" || isCryptoFo(sym) || (feed ?? "").startsWith("binance");
 }
 
-function farmWatch(live: Record<string, number>, _feed: Record<string, string>, _openSession: boolean) {
-  // Until meta promotes, farm may trade full spot universe (incl majors) for quality holds.
-  // After promote, reserve BTC/ETH/SOL for the pnl sleeve.
+function farmWatch(live: Record<string, number>, farmTail: boolean) {
   const reserved = getArtefact().promoted ? new Set<string>(PNL_CRYPTO) : new Set<string>();
-  return unique(FARM_CRYPTO.filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s)));
+  const names = farmTail ? FARM_CRYPTO : FARM_CORE;
+  return unique(names.filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s)));
 }
 
-function pnlWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
+function farmScanWatch(live: Record<string, number>) {
+  return unique(FARM_CRYPTO.filter((s) => (live[s] ?? 0) > 0));
+}
+
+function pnlWatch(live: Record<string, number>) {
+  return unique(PNL_CRYPTO.filter((s) => (live[s] ?? 0) > 0));
+}
+
+function proposeWatch(live: Record<string, number>, feed: Record<string, string>, openSession: boolean) {
   const fo = foWatchSymbols(live, feed);
-  const nseFo = openSession ? fo.filter((s) => isNseHoursOnly(s, feed[s])) : [];
-  const cash = openSession ? CASH_WATCH.filter((s) => (live[s] ?? 0) > 0) : [];
-  const sat = PNL_CRYPTO.filter((s) => (live[s] ?? 0) > 0);
-  return unique([...cash, ...nseFo, ...sat]);
+  const nseFo = fo.filter((s) => isNseHoursOnly(s, feed[s]) || s === "NIFTYFUT" || (NSE_FUT_CORE as readonly string[]).includes(s));
+  const cash = CASH_WATCH.filter((s) => (live[s] ?? 0) > 0);
+  const cmdty = COMMODITY_WATCH.filter((s) => (live[s] ?? 0) > 0);
+  const listed = openSession ? [...cash, ...nseFo] : nseFo.filter((s) => (live[s] ?? 0) > 0);
+  return unique([...listed, ...cmdty]);
 }
 
 function quoteLabelOf(feed: string | undefined, delayed: boolean | undefined): QuoteLabel {
@@ -293,6 +295,7 @@ export type PaperBook = {
   extraWatch: string[];
   heatFarm: number;
   heatPnl: number;
+  farmTail: boolean;
 };
 
 type Engine = PaperBook & {
@@ -315,7 +318,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 31;
+const ENGINE_REV = 32;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -352,6 +355,7 @@ function emptyEngine(): Engine {
     extraWatch: [],
     heatFarm: 0,
     heatPnl: 0,
+    farmTail: false,
     quality: { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 },
   };
 }
@@ -580,7 +584,6 @@ async function tickUnlocked() {
 
   const clock = sessionClock();
   const now = Date.now();
-  const halted = eng.killed;
   const signalsOnly = eng.mode === "advisory" && !eng.killed;
   let positions = [...eng.positions];
 
@@ -608,11 +611,6 @@ async function tickUnlocked() {
       continue;
     }
     const mid = livePx > 0 ? livePx : (eng.ticks[pos.symbol] ?? pos.entryPrice);
-    if (halted && !staleCrypto && !(famKey && keptFamily.has(famKey)) && !(sessionFlat && nseHours)) {
-      if (famKey) keptFamily.add(famKey);
-      still.push(pos);
-      continue;
-    }
     const prof = profileOf(pos.sleeve);
     let intent;
     if (famKey && keptFamily.has(famKey)) {
@@ -703,6 +701,7 @@ async function tickUnlocked() {
         right: extra.right,
         quoteLabel: label,
         features: pos.features,
+        farmBucket: pos.farmBucket ?? farmBucket(pos.symbol),
       });
     } else {
       if (famKey) keptFamily.add(famKey);
@@ -714,22 +713,22 @@ async function tickUnlocked() {
     }
   }
   positions = still;
-  const ALLOWED_SPOT = new Set<string>(FARM_CRYPTO.map((s) => s.toUpperCase()));
-  const POS_CAP = FARM_PROFILE.MAX_POS + PNL_PROFILE.MAX_POS;
   {
-    const prefer = (sym: string) => {
-      const u = sym.toUpperCase();
-      const maj = ["BTC", "ETH", "SOL"].indexOf(u);
-      if (maj >= 0) return maj;
-      const i = (FARM_CRYPTO as readonly string[]).indexOf(u);
-      return i >= 0 ? 10 + i : 999;
-    };
-    const keep = positions
-      .filter((p) => ALLOWED_SPOT.has(p.symbol.toUpperCase()))
-      .sort((a, b) => prefer(a.symbol) - prefer(b.symbol))
-      .slice(0, Math.max(POS_CAP, 0));
-    const keepSet = new Set(keep.map((p) => p.symbol));
-    const drop = positions.filter((p) => !keepSet.has(p.symbol));
+    const keep: Position[] = [];
+    const drop: Position[] = [];
+    for (const p of positions) {
+      const lev = autoOpenSkip({
+        symbol: p.symbol,
+        sleeve: p.sleeve ?? "farm",
+        feed: eng.liveFeed[p.symbol],
+        delayed: eng.delayed[p.symbol],
+        openSession: clock.openSession,
+        positions: [],
+        farmTail: true,
+      });
+      if (lev === "no_leverage") drop.push(p);
+      else keep.push(p);
+    }
     for (const pos of drop) {
       const mid = eng.live[pos.symbol] || eng.ticks[pos.symbol] || pos.entryPrice;
       const closeSide = pos.side === "short" ? "BUY" : "SELL";
@@ -744,7 +743,7 @@ async function tickUnlocked() {
         side: closeSide,
         qty: pos.qty,
         price: px,
-        reason: `${ALLOWED_SPOT.has(pos.symbol.toUpperCase()) ? "max_positions" : "universe_filter"}:${pos.side}:paper`,
+        reason: `no_leverage:${pos.side}:paper`,
         quoteLabel: quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]),
         sleeve: pos.sleeve,
         ...extra,
@@ -806,16 +805,15 @@ async function tickUnlocked() {
     }>;
 
     for (const row of ranked) {
-      const skip = execute
-        ? openSkipReason({
-            symbol: row.sym,
-            sleeve,
-            feed: eng.liveFeed[row.sym],
-            delayed: eng.delayed[row.sym],
-            openSession: clock.openSession,
-            positions,
-          })
-        : null;
+      const skip = autoOpenSkip({
+        symbol: row.sym,
+        sleeve,
+        feed: eng.liveFeed[row.sym],
+        delayed: eng.delayed[row.sym],
+        openSession: clock.openSession,
+        positions,
+        farmTail: sleeve === "farm" ? !!eng.farmTail : true,
+      });
       const action = skip ? "FLAT" : row.intent.action;
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
@@ -839,13 +837,14 @@ async function tickUnlocked() {
       const mid = eng.live[row.sym];
       if (!(mid > 0)) continue;
       if (
-        openSkipReason({
+        autoOpenSkip({
           symbol: row.sym,
           sleeve,
           feed: eng.liveFeed[row.sym],
           delayed: eng.delayed[row.sym],
           openSession: clock.openSession,
           positions,
+          farmTail: sleeve === "farm" ? !!eng.farmTail : true,
         })
       ) {
         continue;
@@ -887,6 +886,7 @@ async function tickUnlocked() {
         sleeve,
         costBps: roundTripBps(cls),
         features: row.f,
+        farmBucket: farmBucket(row.sym),
       };
       positions.push(pos);
       runningHeat += sizePct;
@@ -908,10 +908,13 @@ async function tickUnlocked() {
     }
   }
 
-  const farmList = unique([...((eng.extraWatch ?? []).filter((s) => (FARM_CRYPTO as readonly string[]).includes(s.toUpperCase()))), ...farmWatch(eng.live, eng.liveFeed, clock.openSession)]);
-  const execute = (eng.mode === "auto" || eng.mode === "paper") && !eng.killed;
-  await openSleeve("farm", farmList, FARM_PROFILE, execute);
-  await openSleeve("pnl", pnlWatch(eng.live, eng.liveFeed, clock.openSession), PNL_PROFILE, execute);
+  const extraFarm = (eng.extraWatch ?? []).filter((s) => (FARM_CRYPTO as readonly string[]).includes(s.toUpperCase()));
+  const farmScan = unique([...extraFarm, ...farmScanWatch(eng.live)]);
+  const farmOpen = unique([...extraFarm.filter((s) => farmBucket(s) === "core" || eng.farmTail), ...farmWatch(eng.live, !!eng.farmTail)]);
+  const execute = autoCanSend(eng.mode, eng.killed);
+  await openSleeve("farm", unique([...farmScan, ...farmOpen]), FARM_PROFILE, execute);
+  await openSleeve("pnl", pnlWatch(eng.live), PNL_PROFILE, execute);
+  await openSleeve("farm", proposeWatch(eng.live, eng.liveFeed, clock.openSession), FARM_PROFILE, false);
   if (execute && (eng.samples - eng.lastRetrainN >= 50 || (art.source === "synth" && now - eng.lastRetrainAt > 60_000))) {
     const next = await retrainFromJsonl();
     if (next) {
@@ -988,6 +991,7 @@ export function startPaperEngine() {
   eng.extraWatch ??= [];
   eng.heatFarm ??= 0;
   eng.heatPnl ??= 0;
+  eng.farmTail ??= false;
   eng.quality ??= { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 };
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));
@@ -1038,6 +1042,7 @@ export function snapshotBook(): PaperBook {
     extraWatch: e.extraWatch ?? [],
     heatFarm: e.heatFarm ?? 0,
     heatPnl: e.heatPnl ?? 0,
+    farmTail: !!e.farmTail,
     meta: {
       n: art.n,
       auc: art.auc,
@@ -1188,7 +1193,7 @@ function openNow(
     openSession: clock.openSession,
     positions: e.positions,
   });
-  if (skip) return skip;
+  if (skip && skip !== "universe_filter") return skip;
   if (e.positions.some((p) => p.symbol === symbol)) return "family_open";
   const mid = e.live[symbol] || e.ticks[symbol];
   if (!(mid > 0)) return "bad_price";
@@ -1224,6 +1229,7 @@ function openNow(
     quoteLabel: label,
     sleeve,
     costBps: roundTripBps(cls),
+    farmBucket: farmBucket(symbol),
   };
   e.positions = [...e.positions, pos];
   const fill: Fill = {
@@ -1252,6 +1258,7 @@ export type FitSampleRow = {
   contaminated: boolean;
   set: "fit-jsonl";
   pnl?: number;
+  farm_bucket?: "core" | "tail" | "other";
 };
 
 export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {

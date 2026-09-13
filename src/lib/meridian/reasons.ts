@@ -27,6 +27,7 @@ const REASON_PART: Record<string, string> = {
   family_open: "same coin already open",
   no_leverage: "spot only — no perp/option",
   universe_filter: "outside farm universe",
+  tail_off: "tail farm off — scan only",
   stale_model: "stale model quote — flattened",
   nse_session_closed: "NSE session closed",
   night_crypto_only: "night: crypto only",
