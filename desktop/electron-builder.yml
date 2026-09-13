@@ -59,7 +59,6 @@ extraResources:
       - "!@playwright/**"
       - "!eslint/**"
       - "!@eslint/**"
-      - "!prettier/**"
       - "!typescript-eslint/**"
       - "!@types/**"
       - "!@electron/**"
