@@ -77,16 +77,19 @@ export const getPaperBook = createServerFn({ method: "GET" }).handler(async () =
 });
 
 export const setPaperFlags = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { mode?: "advisory" | "paper" | "auto"; killed?: boolean }) => input)
   .handler(async ({ data }) => {
     const { setEngineFlags } = await import("@/lib/server/paper-engine");
     return setEngineFlags(data);
   });
 
-export const resetPaperBook = createServerFn({ method: "POST" }).handler(async () => {
-  const { resetEngine } = await import("@/lib/server/paper-engine");
-  return resetEngine();
-});
+export const resetPaperBook = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const { resetEngine } = await import("@/lib/server/paper-engine");
+    return resetEngine();
+  });
 
 export const getPaperSamples = createServerFn({ method: "GET" }).handler(async () => {
   const { listFitSamples } = await import("@/lib/server/paper-engine");
@@ -94,6 +97,7 @@ export const getPaperSamples = createServerFn({ method: "GET" }).handler(async (
 });
 
 export const runPaperOp = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { type: string; symbol?: string; qty?: number; side?: "long" | "short"; sleeve?: "farm" | "pnl" }) => input)
   .handler(async ({ data }) => {
     const { operatorAction } = await import("@/lib/server/paper-engine");
