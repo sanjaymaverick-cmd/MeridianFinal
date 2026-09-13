@@ -66,8 +66,9 @@ function AutoPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Auto trade</p>
           <h1 className="mt-1 font-display text-4xl">Paper loop</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Auto fills are crypto spot only (core: BTC ETH SOL
-            BNB). Cash, F&O, and MCX/COMEX estimates are propose-only — they never Auto-send. Pause still runs stops.
+            Shared paper book {inr(PAPER_BUDGET)}. Kite stays off. Auto fills crypto spot: core BTC ETH SOL BNB plus
+            alt-coin tail (XRP, TRX, HBAR, TON, memes, L2s). Cash, F&O, and MCX/COMEX stay propose-only. Pause still
+            runs stops.
           </p>
         </div>
 

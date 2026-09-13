@@ -301,8 +301,6 @@ export function openSkipReason(args: {
   ) {
     return "no_leverage";
   }
-  const SPOT_OK = new Set(["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE","UNI","ATOM","FIL","APT","ARB","OP","INJ","TIA","SEI","PEPE","WIF","BONK","RENDER","FET","TAO","PAXG"]);
-  if (!SPOT_OK.has(symU)) return "universe_filter";
   const fam = cryptoFamily(args.symbol);
   if (fam && args.positions.some((p) => (p.sleeve ?? "farm") === sleeve && cryptoFamily(p.symbol) === fam)) {
     return "family_open";

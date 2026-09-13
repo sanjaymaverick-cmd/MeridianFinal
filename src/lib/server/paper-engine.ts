@@ -318,7 +318,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 32;
+const ENGINE_REV = 33;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -355,7 +355,7 @@ function emptyEngine(): Engine {
     extraWatch: [],
     heatFarm: 0,
     heatPnl: 0,
-    farmTail: false,
+    farmTail: true,
     quality: { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 },
   };
 }
@@ -991,7 +991,7 @@ export function startPaperEngine() {
   eng.extraWatch ??= [];
   eng.heatFarm ??= 0;
   eng.heatPnl ??= 0;
-  eng.farmTail ??= false;
+  eng.farmTail ??= true;
   eng.quality ??= { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 };
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));

@@ -6,6 +6,9 @@ export const FARM_CORE = ["BTC", "ETH", "SOL", "BNB"] as const;
 export const FARM_TAIL = [
   "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "LTC", "BCH", "NEAR", "SUI", "AAVE", "UNI",
   "ATOM", "FIL", "APT", "ARB", "OP", "INJ", "TIA", "SEI", "PEPE", "WIF", "BONK", "RENDER", "FET", "TAO", "PAXG",
+  "TRX", "HBAR", "XLM", "ETC", "ICP", "ONDO", "WLD", "SHIB", "TON", "RUNE", "MKR", "ENA",
+  "POL", "STX", "IMX", "GRT", "LDO", "CRV", "SAND", "ALGO", "VET", "JUP", "PYTH", "PENDLE",
+  "FLOKI", "ORDI", "CAKE", "ENS", "APE", "GALA", "CHZ", "THETA", "W", "STRK",
 ] as const;
 
 export const FARM_CRYPTO = [...FARM_CORE, ...FARM_TAIL] as const;

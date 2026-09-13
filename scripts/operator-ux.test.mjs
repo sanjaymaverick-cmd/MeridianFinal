@@ -223,6 +223,11 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const watches = readFileSync(join(root, "../src/lib/meridian/paper-watch.ts"), "utf8");
   assert.match(watches, /CASH_WATCH = \["HDFCBANK", "ICICIBANK", "RELIANCE", "TCS", "INFY", "LT", "POLYCAB"\]/);
   assert.match(watches, /COMMODITY_WATCH = \["GOLD"/);
+  assert.match(watches, /"TRX"/);
+  assert.match(watches, /"HBAR"/);
+  assert.match(watches, /"TON"/);
+  assert.match(watches, /"POL"/);
+  assert.match(watches, /"SHIB"/);
   const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
   assert.match(autoPage, /crypto spot only/i);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
