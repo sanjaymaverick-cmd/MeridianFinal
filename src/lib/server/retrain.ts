@@ -130,7 +130,7 @@ export async function retrainFromJsonl(jsonlPath = JSONL): Promise<ArtefactStatu
   const pte = test.map((i) => predictRow(X[i]!, fit));
   const yte = test.map((i) => y[i]!);
   const auc = rocAuc(yte, pte);
-  const hr = hitRate(y);
+  const hr = hitRate(yte);
   const next = artefactFromFit(fit, { n: rows.length, auc, hitRate: hr, features: [...FEATURE_KEYS] });
   setArtefact(next);
   try {
