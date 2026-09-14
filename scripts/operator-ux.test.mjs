@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -186,7 +187,7 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
       if (FARM_TAIL.includes(u)) return "tail";
       return "other";
     }
-    function autoCanSend(mode, killed) { return (mode === "auto" || mode === "paper") && !killed; }
+    function autoCanSend(mode, killed) { return mode === "auto" && !killed; }
     function autoOpenSkip(args) {
       const skip = openSkipReason(args);
       if (skip) return skip;
@@ -222,6 +223,8 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
 
     if (autoCanSend("auto", true)) throw new Error("paused must not open");
     if (!autoCanSend("auto", false)) throw new Error("Auto unkilled should send");
+    if (autoCanSend("paper", false)) throw new Error("Paper must wait for Approve — not auto-send");
+    if (autoCanSend("advisory", false)) throw new Error("Signals must not auto-send");
   `;
   const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
     encoding: "utf8",
@@ -231,6 +234,8 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   assert.match(engine, /autoCanSend\(eng\.mode, eng\.killed\)/);
   assert.doesNotMatch(engine, /if \(halted && !staleCrypto/);
   const watches = readFileSync(join(root, "../src/lib/meridian/paper-watch.ts"), "utf8");
+  assert.match(watches, /mode === "auto" && !killed/);
+  assert.doesNotMatch(watches, /mode === "auto" \|\| mode === "paper"/);
   assert.match(watches, /CASH_WATCH = \["HDFCBANK", "ICICIBANK", "RELIANCE", "TCS", "INFY", "LT", "POLYCAB"\]/);
   assert.match(watches, /COMMODITY_WATCH = \["GOLD"/);
   assert.match(watches, /"TRX"/);
@@ -239,9 +244,70 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   assert.match(watches, /"POL"/);
   assert.match(watches, /"SHIB"/);
   const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
-  assert.match(autoPage, /crypto spot only/i);
+  assert.match(autoPage, /actionCenterBlurb/);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
+  assert.match(chips, /crypto spot only/i);
+});
+
+test("IMP-10 Action Center: Approve / Skip / Size; 15s auto-skip labelled; Flatten-one; Paper not auto-send", () => {
+  const copyPath = join(root, "../src/lib/meridian/operator-copy.ts");
+  const watchPath = join(root, "../src/lib/meridian/paper-watch.ts");
+  const copyBody = readFileSync(copyPath, "utf8")
+    .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+    .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const watchBody = readFileSync(watchPath, "utf8")
+    .replace('from "./fo-contracts"', `from ${JSON.stringify(fo)}`);
+  const src = copyBody + "\n" + watchBody + `
+    if (PAPER_AUTO_SKIP_SEC !== 15) throw new Error("15s auto-skip: " + PAPER_AUTO_SKIP_SEC);
+    if (autoSkipLabel(15) !== "Auto-skip 15s") throw new Error(autoSkipLabel(15));
+    if (autoSkipLabel(0.2) !== "Auto-skip 1s") throw new Error(autoSkipLabel(0.2));
+    if (autoSkipLabel(0) !== "Auto-skip 0s") throw new Error(autoSkipLabel(0));
+
+    const q = suggestedQty(100, 0.015);
+    if (q !== 150) throw new Error("suggestedQty " + q);
+    const ladder = sizeLadder(q);
+    if (ladder.length !== 3) throw new Error("size ladder");
+    if (ladder[0].label !== "½" || ladder[1].label !== "1×" || ladder[2].label !== "1½") throw new Error("labels");
+    if (ladder[0].qty !== 75 || ladder[1].qty !== 150 || ladder[2].qty !== 225) throw new Error(JSON.stringify(ladder));
+
+    const paperBlurb = actionCenterBlurb("paper", false);
+    if (!/Approve \\/ Skip \\/ Size/i.test(paperBlurb) || !/15s auto-skip/i.test(paperBlurb) || !/Flatten one/i.test(paperBlurb)) {
+      throw new Error("paper blurb: " + paperBlurb);
+    }
+    if (/sending crypto/i.test(paperBlurb)) throw new Error("paper must not auto-send in copy");
+
+    if (autoCanSend("paper", false)) throw new Error("paper must not auto-send");
+    if (!autoCanSend("auto", false)) throw new Error("auto should send");
+    if (autoCanSend("auto", true)) throw new Error("paused auto");
+  `;
+  const dir = mkdtempSync(join(tmpdir(), "imp10-"));
+  const file = join(dir, "action-center.ts");
+  writeFileSync(file, src);
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", file], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /const ENGINE_REV = (3[6-9]|[4-9]\d)/);
+  assert.match(engine, /proposeOnly = \(eng\.mode === "advisory" \|\| eng\.mode === "paper"\)/);
+  assert.match(engine, /pending: !skip && proposeOnly/);
+
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /data-action-center/);
+  assert.match(autoPage, /data-approve/);
+  assert.match(autoPage, /data-skip/);
+  assert.match(autoPage, /data-size-control/);
+  assert.match(autoPage, /data-auto-skip/);
+  assert.match(autoPage, /PAPER_AUTO_SKIP_SEC/);
+  assert.match(autoPage, /autoSkipLabel/);
+  assert.match(autoPage, /Flatten one/);
+  assert.match(autoPage, /data-flatten-one/);
+  assert.match(autoPage, /mode === "paper"/);
+  assert.doesNotMatch(autoPage, /Paper is sending crypto spot/);
+
+  const chips = readFileSync(copyPath, "utf8");
+  assert.match(chips, /Approve \/ Skip \/ Size\. 15s auto-skip/);
 });
 
 test("IMP-01 identity strip: MOCK ₹, mode, ENGINE ON|PAUSED, KITE DISARMED", () => {

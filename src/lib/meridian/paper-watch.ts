@@ -26,8 +26,9 @@ export function farmBucket(sym: string): "core" | "tail" | "other" {
   return "other";
 }
 
+/** Auto chip only. Paper waits for Approve / Skip / Size (15s auto-skip). */
 export function autoCanSend(mode: string, killed: boolean) {
-  return (mode === "auto" || mode === "paper") && !killed;
+  return mode === "auto" && !killed;
 }
 
 /** Structural skip plus core/tail. Keep no_leverage on PERP/FUT/options. */
