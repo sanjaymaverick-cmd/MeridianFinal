@@ -24,6 +24,12 @@ import { getArtefact, predictMetaProb } from "@/lib/meridian/artefact";
 import { costClassOf, economicLabel, fillFromMid, netFwdRet, netPnlUsd, roundTripBps, type CostClass } from "@/lib/meridian/costs";
 import { closeClipFields, paperReason } from "@/lib/meridian/paper-sample";
 import {
+  labelFitSampleRow,
+  summarizeFitDownload,
+  type FitDownloadSummary,
+  type FitSampleRow,
+} from "@/lib/meridian/fit-samples";
+import {
   confluenceFromParts,
   emptyFeatures,
   hoursToExpiry,
@@ -1636,50 +1642,48 @@ function openNow(
   void persistFill(fill, pos.metaProb, null);
 }
 
-export type FitSampleRow = {
-  symbol?: string;
-  side?: string;
-  hold_sec: number;
-  fwd_ret?: number;
-  reason_close: string;
-  reasonCloseFull?: string;
-  quality_hold: boolean;
-  contaminated: boolean;
-  set: "fit-jsonl";
-  pnl?: number;
-  pnl_usd?: number;
-  label?: number;
-  y?: number;
-  label_barrier?: number;
-  barrier?: string;
-  costBps?: number;
-  farm_bucket?: "core" | "tail" | "other";
+export type { FitSampleRow, FitDownloadSummary } from "@/lib/meridian/fit-samples";
+
+export type FitSamplesDownload = {
+  rows: FitSampleRow[];
+  summary: FitDownloadSummary;
 };
 
-export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
+/** Prefer paper-samples.jsonl (AUC fit). Label fit vs contaminated; compare counts to artefact n. */
+export async function listFitSamples(limit = 100_000): Promise<FitSampleRow[]> {
+  const pack = await exportFitSamplesDownload(limit);
+  return pack.rows;
+}
+
+export async function exportFitSamplesDownload(limit = 100_000): Promise<FitSamplesDownload> {
   const { readFile } = await import("node:fs/promises");
+  const artefactN = getArtefact().n;
   let txt = "";
   try {
     txt = await readFile(JSONL, "utf8");
   } catch {
     const live = await listSamples(Math.min(limit, 800));
-    return live
+    const rows = live
       .filter((r) => !isPredSymbol(r.symbol) && !String(r.reason_open ?? "").startsWith("pred:"))
-      .map((r) => ({
-      symbol: r.symbol,
-      side: r.side,
-      hold_sec: r.hold_sec,
-      fwd_ret: r.fwd_ret,
-      reason_close: r.reason_close,
-      quality_hold: r.hold_sec >= 300,
-      contaminated: r.reason_close.includes("time_stop") || r.hold_sec < 120,
-      set: "fit-jsonl" as const,
-      pnl: r.pnl,
-    }));
+      .map((r) =>
+        labelFitSampleRow({
+          symbol: r.symbol,
+          side: r.side,
+          hold_sec: r.hold_sec,
+          fwd_ret: r.fwd_ret,
+          reason_close: r.reason_close,
+          pnl: r.pnl,
+          source: "live-db",
+        }),
+      );
+    return {
+      rows,
+      summary: summarizeFitDownload({ rows, artefactN, source: "live-db", jsonlTotalN: 0 }),
+    };
   }
-  const rows: FitSampleRow[] = [];
+  const all: FitSampleRow[] = [];
   const lines = txt.split("\n");
-  for (let i = lines.length - 1; i >= 0 && rows.length < limit; i--) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line?.trim()) continue;
     try {
@@ -1710,17 +1714,17 @@ export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
       const fwd = Number(r.fwd_ret ?? r.fwdRet ?? 0);
       const pnl = Number(r.pnl_usd ?? r.pnl ?? 0);
       const y = r.label === 0 || r.label === 1 ? r.label : r.y === 0 || r.y === 1 ? r.y : fwd > 0 ? 1 : 0;
-      rows.push({
-        symbol: r.symbol,
-        side: r.side,
-        hold_sec: hold,
-        fwd_ret: fwd,
-        reason_close: reason,
+      all.push({
+        ...labelFitSampleRow({
+          symbol: r.symbol,
+          side: r.side,
+          hold_sec: hold,
+          fwd_ret: fwd,
+          reason_close: reason,
+          pnl,
+          source: "fit-jsonl",
+        }),
         reasonCloseFull: r.reasonCloseFull,
-        quality_hold: hold >= 300,
-        contaminated: reason.includes("time_stop") || hold < 120,
-        set: "fit-jsonl",
-        pnl,
         pnl_usd: pnl,
         label: y,
         y,
@@ -1732,7 +1736,13 @@ export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
       /* skip */
     }
   }
-  return rows;
+  const jsonlTotalN = all.length;
+  // newest-first for the download window (matches prior behaviour)
+  const rows = all.slice(-limit).reverse();
+  return {
+    rows,
+    summary: summarizeFitDownload({ rows, artefactN, source: "fit-jsonl", jsonlTotalN }),
+  };
 }
 
 export async function listSamples(limit = 500): Promise<

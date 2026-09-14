@@ -97,8 +97,8 @@ export const resetPaperBook = createServerFn({ method: "POST" })
   });
 
 export const getPaperSamples = createServerFn({ method: "GET" }).handler(async () => {
-  const { listFitSamples } = await import("@/lib/server/paper-engine");
-  return listFitSamples(4000);
+  const { exportFitSamplesDownload } = await import("@/lib/server/paper-engine");
+  return exportFitSamplesDownload(100_000);
 });
 
 export const runPaperOp = createServerFn({ method: "POST" })
