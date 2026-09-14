@@ -336,7 +336,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -859,7 +859,7 @@ async function tickUnlocked() {
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
         action,
-        reason: `${sleeve}:${skip ?? row.intent.reason}`,
+        reason: `${sleeve}:${skip ?? row.intent.reason}:paper`,
         metaProb: row.intent.metaProb,
         px: row.px,
         sleeve,
