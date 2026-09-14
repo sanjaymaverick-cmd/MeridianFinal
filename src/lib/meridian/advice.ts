@@ -89,7 +89,9 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Spot",
       stance: "Neutral",
       title: "Hold quality, skip chase",
-      body: "Tape is two-sided. Add only where five-factor score still clears Buy and meta-prob is above 0.55. Not an order.",
+      body: promoted
+        ? "Tape is two-sided. Add only where five-factor score still clears Buy and meta-prob is above 0.55. Not an order."
+        : "Tape is two-sided, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only. Not an order.",
       urgency: "session",
     });
     cards.push({
