@@ -16,3 +16,5 @@ export function paperBlockedReason(symbol: string, feed?: string, now = Date.now
   if (isCryptoHoursName(symbol, feed)) return null;
   return "nse_session_closed";
 }
+
+export { isCryptoLastSource, applyOffSessionDelayed } from "./quote-freshness";

@@ -2,6 +2,7 @@ import { BINANCE_API, convertPx, SNAPSHOT, yahooFor, type TickerMap } from "@/li
 import { UNIVERSE } from "@/lib/meridian/universe";
 import { binanceAnchors, binancePairOf, listBinanceLive, listBinancePerps, listBinanceAtmOptions } from "@/lib/server/binance-catalog";
 import { sessionClock } from "@/lib/meridian/decision";
+import { applyOffSessionDelayed } from "@/lib/meridian/quote-freshness";
 import {
   bsPremium,
   atmStrike,
@@ -411,6 +412,8 @@ export async function getLiveBook(force = false): Promise<LiveBook> {
     };
     ok += 1;
   }
+
+  applyOffSessionDelayed(quotes, sessionClock().openSession);
 
   const book: LiveBook = {
     quotes,
