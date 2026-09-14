@@ -46,6 +46,9 @@ test("research rank answers the query; promotion copy is a verdict", () => {
     const r = explainReason("farm:fade_short:live");
     if (!/paper quote/i.test(r)) throw new Error("reason should say paper quote: " + r);
     if (!/fade/i.test(r)) throw new Error("fade missing " + r);
+    const paper = explainReason("farm:fade_short:paper");
+    if (!/paper quote/i.test(paper)) throw new Error("paper tag should say paper quote: " + paper);
+    if (!/fade/i.test(paper)) throw new Error("fade missing on paper " + paper);
 
     if (shouldPromote(8629, 0.548, "paper", 0.4)) throw new Error("should not promote");
     if (!shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "paper", PROMOTE_MIN_HIT + 0.01)) throw new Error("clear gates should promote");
@@ -156,7 +159,11 @@ test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () 
   assert.match(engine, /closeClipFields/);
   assert.match(engine, /economicLabel/);
   assert.match(engine, /reasonCloseFull/);
+  assert.match(engine, /\$\{sleeve\}:\$\{skip \?\? row\.intent\.reason\}:paper/);
   assert.doesNotMatch(engine, /:live`/);
+  assert.doesNotMatch(engine, /flatten_operator:[^`]*:live/);
+  assert.doesNotMatch(engine, /reason: `\$\{sleeve\}:\$\{skip \?\? row\.intent\.reason}`/);
+
   assert.match(shell, /Resume paper/);
   assert.doesNotMatch(shell, /\bArm\b/);
   const flags = desk.slice(desk.indexOf("export const setPaperFlags"), desk.indexOf("export const resetPaperBook"));

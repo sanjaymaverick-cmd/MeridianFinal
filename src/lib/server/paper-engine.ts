@@ -336,7 +336,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 36;
+const ENGINE_REV = 37;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -877,7 +877,7 @@ async function tickUnlocked() {
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
         action,
-        reason: `${sleeve}:${skip ?? row.intent.reason}`,
+        reason: `${sleeve}:${skip ?? row.intent.reason}:paper`,
         metaProb: row.intent.metaProb,
         px: row.px,
         sleeve,
@@ -1335,8 +1335,8 @@ async function settlePredWindows(eng: Engine, now: number) {
       pnl,
       holdSec: (now - pos.entryTs) / 1000,
       fwdRet: netFwdRet(pos.entryPrice, px, pos.side),
-      reasonOpen: pos.reasonOpen,
-      reasonClose: `pred_settle:${source}`,
+      reasonOpen: paperReason(pos.reasonOpen),
+      reasonClose: paperReason(`pred_settle:${source}`),
       metaProb: pos.metaProb,
       confidence: pos.confidence,
       confluence: pos.confluence,
