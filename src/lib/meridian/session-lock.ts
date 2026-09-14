@@ -1,10 +1,11 @@
 import { sessionClock } from "./decision";
 import { isCryptoHoursName } from "./fo-contracts";
+import { nseCashFoOpen } from "./nse-holidays";
 
-export { isCryptoHoursName };
+export { isCryptoHoursName, nseCashFoOpen };
 
 export function nseCashOpen(now = Date.now()) {
-  return sessionClock(new Date(now)).openSession;
+  return nseCashFoOpen(now);
 }
 
 export function nseCashClosed(now = Date.now()) {

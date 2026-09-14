@@ -30,7 +30,7 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
 | Operator chrome | Boot paused Signals (`advisory` + `killed`). Halt pauses new entries (exits still run). Resume CTA = **Resume paper**, never Arm. |
-| Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when F6 is later enabled. |
+| Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when F6 is later enabled. Cash + equity F&O Auto only while `nseCashFoOpen` (weekday 09:15–15:30 IST, not on the NSE/BSE CM+FO holiday table — 14 Sep 2026 Ganesh Chaturthi is closed). Farm splits 25% notional / 4 clips across cash, fo, crypto, other when that session is open; overnight/holiday the live segments share the farm cap (crypto-only → 100%). |
 | V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). The running Auto loop is TypeScript. |
 
 ---

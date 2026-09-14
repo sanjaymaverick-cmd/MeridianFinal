@@ -214,12 +214,16 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
     if (xrpOn) throw new Error("tail on should open: " + xrpOn);
 
     const blocked = new Set(["nse_session_closed", "no_leverage", "universe_filter", "stale_model", "tail_off"]);
-    const nifty = autoOpenSkip({ ...base, symbol: "NIFTYFUT", feed: "nse-opt-model", openSession: true });
-    if (!blocked.has(nifty ?? "")) throw new Error("NIFTYFUT fill: " + nifty);
-    const rel = autoOpenSkip({ ...base, symbol: "RELIANCE", feed: "yahoo", openSession: true });
-    if (!blocked.has(rel ?? "")) throw new Error("RELIANCE fill: " + rel);
-    const gold = autoOpenSkip({ ...base, symbol: "GOLD", feed: "yahoo", openSession: true });
-    if (!blocked.has(gold ?? "")) throw new Error("GOLD fill: " + gold);
+    const niftyNight = autoOpenSkip({ ...base, symbol: "NIFTYFUT", feed: "nse-opt-model", openSession: false });
+    if (!blocked.has(niftyNight ?? "")) throw new Error("NIFTYFUT night fill: " + niftyNight);
+    const relNight = autoOpenSkip({ ...base, symbol: "RELIANCE", feed: "yahoo", openSession: false });
+    if (!blocked.has(relNight ?? "")) throw new Error("RELIANCE night fill: " + relNight);
+    const goldNight = autoOpenSkip({ ...base, symbol: "GOLD", feed: "yahoo", openSession: false });
+    if (!blocked.has(goldNight ?? "")) throw new Error("GOLD night fill: " + goldNight);
+    const niftyDay = openSkipReason({ symbol: "NIFTYFUT", sleeve: "farm", feed: "nse-opt-model", delayed: false, openSession: true, positions: [] });
+    if (niftyDay === "nse_session_closed" || niftyDay === "no_leverage") throw new Error("NIFTYFUT in session: " + niftyDay);
+    const relDay = openSkipReason({ symbol: "RELIANCE", sleeve: "farm", feed: "yahoo", delayed: false, openSession: true, positions: [] });
+    if (relDay === "nse_session_closed") throw new Error("RELIANCE in session: " + relDay);
 
     if (autoCanSend("auto", true)) throw new Error("paused must not open");
     if (!autoCanSend("auto", false)) throw new Error("Auto unkilled should send");
@@ -256,8 +260,10 @@ test("IMP-10 Action Center: Approve / Skip / Size; 15s auto-skip labelled; Flatt
   const copyBody = readFileSync(copyPath, "utf8")
     .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
     .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const segs = pathToFileURL(join(root, "../src/lib/meridian/farm-segments.ts")).href;
   const watchBody = readFileSync(watchPath, "utf8")
-    .replace('from "./fo-contracts"', `from ${JSON.stringify(fo)}`);
+    .replace('from "./fo-contracts"', `from ${JSON.stringify(fo)}`)
+    .replace('from "./farm-segments"', `from ${JSON.stringify(segs)}`);
   const src = copyBody + "\n" + watchBody + `
     if (PAPER_AUTO_SKIP_SEC !== 15) throw new Error("15s auto-skip: " + PAPER_AUTO_SKIP_SEC);
     if (autoSkipLabel(15) !== "Auto-skip 15s") throw new Error(autoSkipLabel(15));

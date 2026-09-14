@@ -11,6 +11,7 @@ import { kellySizePct } from "./kelly";
 import { FARM_MAX_POS, PNL_MAX_POS, LIVE_MAX_POS, sleeveOpenSkip } from "./sleeve-caps";
 import { clamp } from "../utils";
 import { PRED_PROFILE } from "./pred-orb";
+import { isNseEquityHolidayIst, nseCashFoOpen } from "./nse-holidays";
 
 export { FARM_MAX_POS, PNL_MAX_POS, sleeveOpenSkip } from "./sleeve-caps";
 
@@ -279,10 +280,17 @@ export function sessionClock(now = new Date()) {
   const open = 9 * 60 + 15;
   const close = 15 * 60 + 30;
   const minutesToEodReal = close - minutes;
-  const openSession = minutes >= open && minutes <= close && ist.getUTCDay() >= 1 && ist.getUTCDay() <= 5;
+  const nseOpen = nseCashFoOpen(now);
   const minutesSinceMidnight = minutes;
-  const minutesToEod = openSession ? minutesToEodReal : 240;
-  return { minutesSinceMidnight, minutesToEod, openSession, ist };
+  const minutesToEod = nseOpen ? minutesToEodReal : 240;
+  return {
+    minutesSinceMidnight,
+    minutesToEod,
+    openSession: nseOpen,
+    nseCashFoOpen: nseOpen,
+    holiday: isNseEquityHolidayIst(ist),
+    ist,
+  };
 }
 
 export function profileOf(sleeve: DeskSleeve | undefined): SleeveProfile {

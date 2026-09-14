@@ -308,17 +308,12 @@ export function openSkipReason(args: {
 }): string | null {
   const sleeve = args.sleeve ?? "farm";
   const feed = args.feed ?? "";
-  // Cash + INR F&O wait for the NSE cash session. Crypto (Binance) stays 24/7.
+  // Cash + INR F&O wait for a real NSE cash/FO session (weekday, hours, holiday table).
   if (!args.openSession && !isCryptoHoursName(args.symbol, feed)) return "nse_session_closed";
   if (isCryptoFo(args.symbol) && (!feed.startsWith("binance") || args.delayed)) return "stale_model";
   const symU = args.symbol.toUpperCase();
-  // Word-safe: do NOT use /PE|CE/ (that blocked PEPE and friends).
-  if (
-    symU.endsWith("PERP") ||
-    symU.endsWith("FUT") ||
-    isFoSymbol(args.symbol) ||
-    isCryptoFo(args.symbol)
-  ) {
+  // Crypto perps/options stay spot-only. NSE equity F&O may paper while the cash/FO session is open.
+  if (symU.endsWith("PERP") || isCryptoFo(args.symbol)) {
     return "no_leverage";
   }
   const fam = cryptoFamily(args.symbol);

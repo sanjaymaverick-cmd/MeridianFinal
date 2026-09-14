@@ -15,6 +15,8 @@ const files = {
   sleeves: pathToFileURL(join(root, "../src/lib/meridian/sleeve-caps.ts")).href,
   decisionSrc: join(root, "../src/lib/meridian/decision.ts"),
   engine: join(root, "../src/lib/server/paper-engine.ts"),
+  holidays: pathToFileURL(join(root, "../src/lib/meridian/nse-holidays.ts")).href,
+  segments: pathToFileURL(join(root, "../src/lib/meridian/farm-segments.ts")).href,
 };
 
 test("costs, kelly, TBM, logistic, BS premiums", () => {
@@ -257,4 +259,72 @@ test("IMP-06 promote math: three gates; missing hitRate=0; no synth; test-split 
   assert.match(kelly, /PROMOTE_MIN_N = 2_000/);
   assert.match(kelly, /PROMOTE_MIN_AUC = 0\.55/);
   assert.match(kelly, /PROMOTE_MIN_HIT = 0\.52/);
+});
+
+test("holiday session gate + 25% farm segment caps", () => {
+  const src = `
+    import { nseCashFoOpen } from ${JSON.stringify(files.holidays)};
+    import { farmSegmentOf, segmentOpenSkip, liveFarmSegments } from ${JSON.stringify(files.segments)};
+    import { shouldPromote, PROMOTE_MIN_N, PROMOTE_MIN_AUC, PROMOTE_MIN_HIT } from ${JSON.stringify(files.kelly)};
+
+    const ganesh = new Date("2026-09-14T10:00:00+05:30");
+    const sat = new Date("2026-09-12T11:00:00+05:30");
+    const tueOpen = new Date("2026-09-15T10:00:00+05:30");
+    const tueClose = new Date("2026-09-15T15:31:00+05:30");
+    if (nseCashFoOpen(ganesh) !== false) throw new Error("Ganesh Chaturthi must be closed");
+    if (nseCashFoOpen(sat) !== false) throw new Error("Saturday must be closed");
+    if (nseCashFoOpen(tueOpen) !== true) throw new Error("Tue 15 Sep 10:00 IST must be open");
+    if (nseCashFoOpen(tueClose) !== false) throw new Error("Tue 15:31 IST must be closed");
+    if (nseCashFoOpen(new Date("2026-10-02T10:00:00+05:30")) !== false) throw new Error("Gandhi Jayanti");
+
+    if (farmSegmentOf("GOLD") === "cash") throw new Error("GOLD is not cash");
+    if (farmSegmentOf("NIFTYFUT") === "cash") throw new Error("NIFTYFUT is not cash");
+    if (farmSegmentOf("NIFTYFUT") !== "fo") throw new Error("NIFTYFUT is fo");
+    if (farmSegmentOf("RELIANCE", "yahoo") !== "cash") throw new Error("RELIANCE cash");
+    if (farmSegmentOf("BTC", "binance") !== "crypto") throw new Error("BTC crypto");
+    if (farmSegmentOf("USDINR") !== "other") throw new Error("USDINR other");
+
+    const four = ["BTC", "ETH", "SOL", "BNB"].map((s) => ({ symbol: s, qty: 1, entryPrice: 100, feed: "binance" }));
+    const fifth = segmentOpenSkip({
+      symbol: "XRP", feed: "binance", qty: 1, px: 100, positions: four,
+      farmBudget: 1_000_000, sessionOpen: true, liveSegments: ["crypto", "cash"], usdInr: 1,
+    });
+    if (!fifth || !fifth.startsWith("segment_cap:crypto")) throw new Error("5th crypto " + fifth);
+    const cashOk = segmentOpenSkip({
+      symbol: "RELIANCE", feed: "yahoo", qty: 1, px: 100, positions: four,
+      farmBudget: 1_000_000, sessionOpen: true, liveSegments: ["crypto", "cash"], usdInr: 1,
+    });
+    if (cashOk) throw new Error("cash may still open: " + cashOk);
+
+    const holidayLive = liveFarmSegments(
+      [{ symbol: "BTC", last: 100000, feed: "binance" }, { symbol: "RELIANCE", last: 1400, feed: "yahoo" }],
+      false,
+    );
+    if (holidayLive.join(",") !== "crypto") throw new Error("holiday live " + holidayLive);
+
+    const names = ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","DOT","LTC","BCH","NEAR","SUI","AAVE"];
+    const fifteen = names.map((s) => ({ symbol: s, qty: 0.01, entryPrice: 100, feed: "binance" }));
+    const sixteenth = segmentOpenSkip({
+      symbol: "UNI", feed: "binance", qty: 0.01, px: 100, positions: fifteen,
+      farmBudget: 1_000_000, sessionOpen: false, liveSegments: ["crypto"], usdInr: 1, farmMaxPos: 16,
+    });
+    if (sixteenth) throw new Error("16th crypto on holiday should pass clip cap: " + sixteenth);
+    const seventeenth = segmentOpenSkip({
+      symbol: "ATOM", feed: "binance", qty: 0.01, px: 100,
+      positions: [...fifteen, { symbol: "UNI", qty: 0.01, entryPrice: 100, feed: "binance" }],
+      farmBudget: 1_000_000, sessionOpen: false, liveSegments: ["crypto"], usdInr: 1, farmMaxPos: 16,
+    });
+    if (!seventeenth || !seventeenth.startsWith("segment_cap:crypto")) throw new Error("17th " + seventeenth);
+
+    if (shouldPromote(568, 0.9, "paper", 0.368)) throw new Error("promote gates");
+    if (PROMOTE_MIN_N !== 2000 || PROMOTE_MIN_AUC !== 0.55 || PROMOTE_MIN_HIT !== 0.52) throw new Error("gates changed");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const engine = readFileSync(files.engine, "utf8");
+  assert.match(engine, /segmentOpenSkip/);
+  assert.match(engine, /const ENGINE_REV = 41/);
+  assert.doesNotMatch(engine, /:live`/);
 });

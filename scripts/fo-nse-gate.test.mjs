@@ -123,7 +123,7 @@ test("IMP-14 NSE session gate: no new cash/F&O entries outside cash session", ()
   assert.match(skipSrc, /!isCryptoHoursName\(args\.symbol, feed\)/);
   assert.match(skipSrc, /nse_session_closed/);
   const clock = readFileSync(join(root, "../src/lib/meridian/decision.ts"), "utf8");
-  assert.match(clock, /minutes >= open && minutes <= close && ist\.getUTCDay\(\) >= 1 && ist\.getUTCDay\(\) <= 5/);
+  assert.match(clock, /nseCashFoOpen/);
   const lock = readFileSync(join(root, "../src/lib/meridian/session-lock.ts"), "utf8");
   assert.match(lock, /isCryptoHoursName/);
   assert.match(lock, /nse_session_closed/);
@@ -320,4 +320,26 @@ test("IMP-17 scan health: hung/NaN/blank/stuck surfaced; recover does not flatte
   const cmd = readFileSync(join(root, "../src/routes/index.tsx"), "utf8");
   assert.match(cmd, /data-stuck-clock/);
   assert.match(cmd, /data-scan-health/);
+});
+
+test("nseCashFoOpen: holidays and 09:15–15:30 IST", () => {
+  const hol = pathToFileURL(join(root, "../src/lib/meridian/nse-holidays.ts")).href;
+  const src = `
+    import { nseCashFoOpen } from ${JSON.stringify(hol)};
+    if (nseCashFoOpen(new Date("2026-09-14T10:00:00+05:30")) !== false) throw new Error("14 Sep");
+    if (nseCashFoOpen(new Date("2026-09-12T11:00:00+05:30")) !== false) throw new Error("Sat");
+    if (nseCashFoOpen(new Date("2026-09-15T10:00:00+05:30")) !== true) throw new Error("15 Sep 10:00");
+    if (nseCashFoOpen(new Date("2026-09-15T15:31:00+05:30")) !== false) throw new Error("15 Sep 15:31");
+    if (nseCashFoOpen(new Date("2026-09-15T09:14:00+05:30")) !== false) throw new Error("pre-open");
+    if (nseCashFoOpen(new Date("2026-10-02T10:00:00+05:30")) !== false) throw new Error("2 Oct");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const clock = readFileSync(join(root, "../src/lib/meridian/decision.ts"), "utf8");
+  assert.match(clock, /nseCashFoOpen/);
+  assert.match(clock, /TIME_STOP_SEC: 900/);
+  const foSrc = readFileSync(join(root, "../src/lib/meridian/fo-contracts.ts"), "utf8");
+  assert.match(foSrc, /NSE equity F&O may paper/);
 });

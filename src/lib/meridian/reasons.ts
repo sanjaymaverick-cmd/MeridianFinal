@@ -38,6 +38,8 @@ const REASON_PART: Record<string, string> = {
   tail_off: "tail farm off — scan only",
   stale_model: "stale model quote — flattened",
   nse_session_closed: "NSE session closed",
+  segment_cap: "segment cap",
+  symbol_cap: "name cap",
   night_crypto_only: "night: crypto only",
   take_profit: "take profit",
   hard_stop: "hard stop",

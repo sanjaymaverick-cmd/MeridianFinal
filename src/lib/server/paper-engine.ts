@@ -89,6 +89,8 @@ import {
   autoOpenSkip,
   farmBucket,
 } from "@/lib/meridian/paper-watch";
+import { farmSegmentOf, liveFarmSegments, segmentOpenSkip, type SegPos } from "@/lib/meridian/farm-segments";
+import { refreshNseHolidays } from "@/lib/meridian/nse-holidays";
 import { assessScanHealth, finitePx, recoverHungLock, SCAN_HUNG_MS, type ScanHealth } from "@/lib/meridian/scan-health";
 
 type QuoteLabel = "live" | "delayed" | "model";
@@ -218,14 +220,33 @@ function cryptoHours(sym: string, feed: string | undefined, assetClass?: string)
   return assetClass === "crypto" || isCryptoFo(sym) || (feed ?? "").startsWith("binance");
 }
 
-function farmWatch(live: Record<string, number>, farmTail: boolean) {
+function farmWatch(
+  live: Record<string, number>,
+  feed: Record<string, string>,
+  farmTail: boolean,
+  nseOpen: boolean,
+) {
   const reserved = getArtefact().promoted ? new Set<string>(PNL_CRYPTO) : new Set<string>();
   const names = farmTail ? FARM_CRYPTO : FARM_CORE;
-  return unique(names.filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s)));
+  const crypto = unique(names.filter((s) => (live[s] ?? 0) > 0 && !reserved.has(s)));
+  if (!nseOpen) return crypto;
+  const cash = CASH_WATCH.filter((s) => (live[s] ?? 0) > 0);
+  const fo = unique([
+    ...(NSE_FUT_CORE as readonly string[]).filter((s) => (live[s] ?? 0) > 0),
+    ...Object.keys(live).filter((s) => (live[s] ?? 0) > 0 && farmSegmentOf(s, feed[s]) === "fo"),
+  ]);
+  return unique([...crypto, ...cash, ...fo]);
 }
 
-function farmScanWatch(live: Record<string, number>) {
-  return unique(FARM_CRYPTO.filter((s) => (live[s] ?? 0) > 0));
+function farmScanWatch(live: Record<string, number>, feed: Record<string, string>, nseOpen: boolean) {
+  const crypto = unique(FARM_CRYPTO.filter((s) => (live[s] ?? 0) > 0));
+  if (!nseOpen) return crypto;
+  const cash = CASH_WATCH.filter((s) => (live[s] ?? 0) > 0);
+  const fo = unique([
+    ...(NSE_FUT_CORE as readonly string[]).filter((s) => (live[s] ?? 0) > 0),
+    ...Object.keys(live).filter((s) => (live[s] ?? 0) > 0 && farmSegmentOf(s, feed[s]) === "fo"),
+  ]);
+  return unique([...crypto, ...cash, ...fo]);
 }
 
 function pnlWatch(live: Record<string, number>) {
@@ -353,7 +374,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 40;
+const ENGINE_REV = 41;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -942,16 +963,47 @@ async function tickUnlocked() {
       u: (typeof UNIVERSE)[number];
     }>;
 
-    for (const row of ranked) {
+    const usdInr = eng.ticks.USDINR ?? eng.live.USDINR ?? 95.7;
+    const liveSegs = liveFarmSegments(
+      Object.keys(eng.live).map((s) => ({ symbol: s, last: eng.live[s] ?? 0, feed: eng.liveFeed[s] })),
+      clock.openSession,
+    );
+    const farmPos = (): SegPos[] =>
+      positions
+        .filter((p) => (p.sleeve ?? "farm") === "farm")
+        .map((p) => ({ symbol: p.symbol, qty: p.qty, entryPrice: p.entryPrice, feed: eng.liveFeed[p.symbol] }));
+    function openGate(sym: string, sl: DeskSleeve): string | null {
       const skip = autoOpenSkip({
-        symbol: row.sym,
-        sleeve,
-        feed: eng.liveFeed[row.sym],
-        delayed: eng.delayed[row.sym],
+        symbol: sym,
+        sleeve: sl,
+        feed: eng.liveFeed[sym],
+        delayed: eng.delayed[sym],
         openSession: clock.openSession,
         positions,
-        farmTail: sleeve === "farm" ? !!eng.farmTail : true,
+        farmTail: sl === "farm" ? !!eng.farmTail : true,
       });
+      if (skip) return skip;
+      if (sl !== "farm") return null;
+      const mid = eng.live[sym];
+      if (!(mid > 0)) return "bad_price";
+      const px = fillFromMid(mid, "buy", clsFor(sym, eng));
+      const qty = qtyFor(sym, px, FARM_PROFILE.SIZE_FLOOR, eng.ticks);
+      return segmentOpenSkip({
+        symbol: sym,
+        feed: eng.liveFeed[sym],
+        qty,
+        px,
+        positions: farmPos(),
+        farmBudget: PAPER_BUDGET,
+        sessionOpen: clock.openSession,
+        liveSegments: liveSegs,
+        usdInr,
+        farmMaxPos: FARM_PROFILE.MAX_POS,
+      });
+    }
+
+    for (const row of ranked) {
+      const skip = openGate(row.sym, sleeve);
       const action = skip ? "FLAT" : row.intent.action;
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
@@ -974,17 +1026,7 @@ async function tickUnlocked() {
       if (nOpen >= profile.MAX_POS) break;
       const mid = eng.live[row.sym];
       if (!(mid > 0)) continue;
-      if (
-        autoOpenSkip({
-          symbol: row.sym,
-          sleeve,
-          feed: eng.liveFeed[row.sym],
-          delayed: eng.delayed[row.sym],
-          openSession: clock.openSession,
-          positions,
-          farmTail: sleeve === "farm" ? !!eng.farmTail : true,
-        })
-      ) {
+      if (openGate(row.sym, sleeve)) {
         continue;
       }
       const long = row.intent.action === "BUY";
@@ -1047,8 +1089,12 @@ async function tickUnlocked() {
   }
 
   const extraFarm = (eng.extraWatch ?? []).filter((s) => (FARM_CRYPTO as readonly string[]).includes(s.toUpperCase()));
-  const farmScan = unique([...extraFarm, ...farmScanWatch(eng.live)]);
-  const farmOpen = unique([...extraFarm.filter((s) => farmBucket(s) === "core" || eng.farmTail), ...farmWatch(eng.live, !!eng.farmTail)]);
+  const nseOpen = clock.openSession;
+  const farmScan = unique([...extraFarm, ...farmScanWatch(eng.live, eng.liveFeed, nseOpen)]);
+  const farmOpen = unique([
+    ...extraFarm.filter((s) => farmBucket(s) === "core" || eng.farmTail),
+    ...farmWatch(eng.live, eng.liveFeed, !!eng.farmTail, nseOpen),
+  ]);
   const execute = autoCanSend(eng.mode, eng.killed);
   await openSleeve("farm", unique([...farmScan, ...farmOpen]).filter((s) => !isPredSymbol(s)), FARM_PROFILE, execute);
   await openSleeve("pnl", pnlWatch(eng.live).filter((s) => !isPredSymbol(s)), PNL_PROFILE, execute);
@@ -1147,6 +1193,7 @@ export function startPaperEngine() {
     tick().catch((err) => console.error("[paper] tick", err));
   }, 2500);
   g.__meridianPaper = { timer, eng, rev: ENGINE_REV };
+  void refreshNseHolidays();
   void loadArtefactFromDisk()
     .then(() => retrainFromJsonl())
     .then((next) => {
@@ -1593,6 +1640,31 @@ function openNow(
     promoted: getArtefact().promoted,
   });
   if (capSkip) return capSkip;
+  if (sleeve === "farm") {
+    const usdInr = e.ticks.USDINR ?? e.live.USDINR ?? 95.7;
+    const liveSegs = liveFarmSegments(
+      Object.keys(e.live).map((s) => ({ symbol: s, last: e.live[s] ?? 0, feed: e.liveFeed[s] })),
+      clock.openSession,
+    );
+    const farmPos: SegPos[] = e.positions
+      .filter((p) => (p.sleeve ?? "farm") === "farm")
+      .map((p) => ({ symbol: p.symbol, qty: p.qty, entryPrice: p.entryPrice, feed: e.liveFeed[p.symbol] }));
+    const trialPx = fillFromMid(e.live[symbol] || e.ticks[symbol] || 0, side === "long" ? "buy" : "sell", clsFor(symbol, e));
+    const trialQty = qtyIn && qtyIn > 0 ? qtyIn : qtyFor(symbol, trialPx, profile.SIZE_FLOOR, e.ticks);
+    const segSkip = segmentOpenSkip({
+      symbol,
+      feed: e.liveFeed[symbol],
+      qty: trialQty,
+      px: trialPx,
+      positions: farmPos,
+      farmBudget: PAPER_BUDGET,
+      sessionOpen: clock.openSession,
+      liveSegments: liveSegs,
+      usdInr,
+      farmMaxPos: FARM_PROFILE.MAX_POS,
+    });
+    if (segSkip) return segSkip;
+  }
   const sizePct = profile.SIZE_FLOOR;
   const cls = clsFor(symbol, e);
   const px = fillFromMid(mid, side === "long" ? "buy" : "sell", cls);
