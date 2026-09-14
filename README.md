@@ -2,8 +2,8 @@
 
 Personal multi-asset desk (V1–V4). Paper first. Live Kite stays off.
 
-- **Modes** — Signals (propose) · Paper (approve/skip) · Auto (paper auto-send). Live locked.
-- **Auto paper** — ₹10L book, farm sleeve (labels + costs) and PnL sleeve (Kelly, armed after meta promote: n≥2000, test AUC≥0.55, test hit>52%). Binance overnight; NSE cash/F&O only in the cash session. 10× is a return target, not a promise.
+- **Modes** — Signals (propose) · Paper (approve/skip) · Auto (paper auto-send). Live locked. Pause control is **Halt** / **Resume paper** — never Arm.
+- **Auto paper** — ₹10L book, farm sleeve (labels + costs) and PnL sleeve (Kelly, opens only after meta promote: n≥2000, test AUC≥0.55, test hit>52%). Binance overnight; NSE cash/F&O only in the cash session. 10× is a return target, not a promise.
 - **Tape** — NSE, FX, COMEX/MCX, every Binance USDT pair
 - **Book** — paper clips first; imported CSV is Holdings. META is n/a until promoted.
 - **Greeks** — what-if calculator + gamma reviews (not an order)

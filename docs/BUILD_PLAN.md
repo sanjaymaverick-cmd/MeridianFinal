@@ -1,6 +1,6 @@
 # Meridian Final — Build Master Spec
 
-**Last updated:** 13 Sep 2026  
+**Last updated:** 14 Sep 2026  
 **Repos:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
 **Lineage:** V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label  
 **Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees.
@@ -11,7 +11,7 @@
 
 One personal Indian-equity desk with four jobs:
 
-1. **Full auto (paper first)** — V4 decision engine (meta-prob, heat, daily loss, min-hold 300s, 1.5R / trail) plus V3 gamma-scalp rehedge reviews. Live Kite stays **disarmed** until an explicit arm on a static-IP box.
+1. **Full auto (paper first)** — V4 decision engine (meta-prob, heat, daily loss, min-hold 300s, 1.5R / trail) plus V3 gamma-scalp rehedge reviews. Live Kite stays **off** (F6 gated: static IP + `LIVE_OK` later). Desk pause CTA is **Resume paper**, never Arm.
 2. **Existing book** — CSV / paste of Zerodha-style holdings → Buy / Hold / Sell + five-factor score + meta-prob + predictability.
 3. **NL research** — “find companies that supply spares to AI data centers” → ranked NSE shortlist (Grok when signed in).
 4. **Market advice** — regime from VIX / tape → Spot / Futures / Options cards. Always “(not an order)”.
@@ -25,11 +25,12 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | Area | Choice |
 |------|--------|
 | Markets | India cash + F&O first. Crypto/Delta later, same as V4. |
-| Meta-label | Synth scaffold until paper fills fit a logistic. Promote PnL only if n≥2000, test AUC≥0.55, and test hit>52%. Do not promote on synth-only AUC. |
+| Meta-label | Synth scaffold until paper fills fit a logistic. Promote PnL only if n≥2000, test AUC≥0.55, and test hit>52%. Do not promote on synth-only AUC. Missing `hitRate` defaults to 0. |
 | Holds | Farm: 90s vertical barrier for labels. PnL: no time-stop — hard stop, 2.2R, trail. Python `meridian_final/` is a frozen port. |
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
-| Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |
+| Operator chrome | Boot paused Signals (`advisory` + `killed`). Halt pauses new entries (exits still run). Resume CTA = **Resume paper**, never Arm. |
+| Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when F6 is later enabled. |
 | V3/V4 files | Read-only. Ports live under `meridian_final/` (Python) and this desk (TypeScript). The running Auto loop is TypeScript. |
 
 ---
@@ -45,7 +46,7 @@ Decision engine (gates, size, manage)
         ↓
 Greeks book / gamma scalp (reviews, optional futures hedge)
         ↓
-OMS: paper (this desk)  →  Kite / OpenAlgo (later, armed)
+OMS: paper (this desk)  →  Kite / OpenAlgo (later, F6 gated)
 ```
 
 ---
@@ -61,7 +62,7 @@ OMS: paper (this desk)  →  Kite / OpenAlgo (later, armed)
 | F4 NL research | Done | Grok + heuristic fallback |
 | F5 Market advice | Done | Regime cards |
 | F6 Kite live | Gated | Premium key on your box, static IP, Analyzer/paper first |
-| F7 Retrain / promote | Done | Fit logistic on `paper-samples.jsonl` (time split). PnL sleeve arms only if n≥2000, test AUC≥0.55, test hit>52%. |
+| F7 Retrain / promote | Done | Fit logistic on `paper-samples.jsonl` (time split). PnL sleeve opens only if n≥2000, test AUC≥0.55, test hit>52%. |
 
 ---
 
