@@ -8,15 +8,18 @@
 
 import { predictMetaProb } from "./artefact";
 import { kellySizePct } from "./kelly";
+import { FARM_MAX_POS, PNL_MAX_POS, LIVE_MAX_POS, sleeveOpenSkip } from "./sleeve-caps";
 import { clamp } from "../utils";
 import { PRED_PROFILE } from "./pred-orb";
+
+export { FARM_MAX_POS, PNL_MAX_POS, sleeveOpenSkip } from "./sleeve-caps";
 
 export type DeskSleeve = "farm" | "pnl" | "pred";
 
 export const STOP_ATR_MULT = 1.5;
 export const EOD_FLATTEN_MIN = 15;
 export const MAX_MINUTES_TO_EOD = 30;
-export const MAX_POS_LIVE = 2;
+export const MAX_POS_LIVE = LIVE_MAX_POS;
 export const MAX_SIZE_LIVE = 0.1;
 export const PAPER_BUDGET = 1_000_000;
 /** Operator daily target (paper). Not a guarantee. */
@@ -55,7 +58,7 @@ export const FARM_PROFILE: SleeveProfile = {
   STOP_PCT_MAX: 0.035,
   COOLDOWN_SEC: 90,
   DAILY_LOSS_LIMIT: -2_000,
-  MAX_POS: 16,
+  MAX_POS: FARM_MAX_POS,
   SIZE_FLOOR: 0.015,
   SIZE_CEIL: 0.03,
   kelly: false,
@@ -74,7 +77,7 @@ export const PNL_PROFILE: SleeveProfile = {
   STOP_PCT_MAX: 0.045,
   COOLDOWN_SEC: 180,
   DAILY_LOSS_LIMIT: -2_000,
-  MAX_POS: 4,
+  MAX_POS: PNL_MAX_POS,
   SIZE_FLOOR: 0.03,
   SIZE_CEIL: 0.08,
   kelly: true,
@@ -197,14 +200,19 @@ export function decide(
 ): Intent {
   const p = scoreSignal(sig);
   if (risk.killed) return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "kill_switch", metaProb: p };
-  if (profile.kelly && !risk.promoted)
-    return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "not_promoted", metaProb: p };
+  const capSkip = sleeveOpenSkip({
+    kelly: profile.kelly,
+    maxPos: profile.MAX_POS,
+    nOpen: risk.nOpen,
+    promoted: risk.promoted,
+    live: risk.live,
+    liveMaxPos: MAX_POS_LIVE,
+  });
+  if (capSkip) return { action: "FLAT", sizePct: 0, stopPct: 0, reason: capSkip, metaProb: p };
   if (risk.dailyPnl <= profile.DAILY_LOSS_LIMIT)
     return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "daily_loss", metaProb: p };
   const until = risk.cooldownUntil[sig.symbol];
   if (until && now < until) return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "cooldown", metaProb: p };
-  const cap = risk.live ? MAX_POS_LIVE : profile.MAX_POS;
-  if (risk.nOpen >= cap) return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "max_positions", metaProb: p };
   if (finite(sig.minutesToEod, 999) < MAX_MINUTES_TO_EOD)
     return { action: "FLAT", sizePct: 0, stopPct: 0, reason: "too_close_to_eod", metaProb: p };
   if (finite(sig.portfolioHeat) >= profile.MAX_HEAT)
@@ -282,3 +290,4 @@ export function profileOf(sleeve: DeskSleeve | undefined): SleeveProfile {
   if (sleeve === "pred") return PRED_PROFILE as SleeveProfile;
   return FARM_PROFILE;
 }
+

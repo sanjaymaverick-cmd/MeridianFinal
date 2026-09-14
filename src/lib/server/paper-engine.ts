@@ -14,6 +14,7 @@ import {
   PNL_PROFILE,
   PNL_CRYPTO,
   profileOf,
+  sleeveOpenSkip,
   STOP_ATR_MULT,
   type Position,
   type DeskSleeve,
@@ -336,7 +337,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -1417,6 +1418,14 @@ function openNow(
   const mid = e.live[symbol] || e.ticks[symbol];
   if (!(mid > 0)) return "bad_price";
   const profile = profileOf(sleeve);
+  const mine = e.positions.filter((p) => (p.sleeve ?? "farm") === sleeve);
+  const capSkip = sleeveOpenSkip({
+    kelly: profile.kelly,
+    maxPos: profile.MAX_POS,
+    nOpen: mine.length,
+    promoted: getArtefact().promoted,
+  });
+  if (capSkip) return capSkip;
   const sizePct = profile.SIZE_FLOOR;
   const cls = clsFor(symbol, e);
   const px = fillFromMid(mid, side === "long" ? "buy" : "sell", cls);
