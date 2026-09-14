@@ -134,7 +134,9 @@ function MarketsPage() {
             <div>
               {bn.length} Binance USDT · {m.data?.ok ?? 0} book live
             </div>
-            <div>{asOf ? formatIst(asOf) : "…"} IST</div>
+            <div data-tape-clock={asOf && Date.now() - asOf > 15_000 ? "stuck_clock" : "ok"}>
+              {asOf ? formatIst(asOf) : "…"} IST{asOf && Date.now() - asOf > 15_000 ? " · STUCK CLOCK" : ""}
+            </div>
           </div>
         </div>
 
@@ -170,6 +172,13 @@ function MarketsPage() {
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-sm text-muted">
                       Binance USDT hydrating…
+                    </td>
+                  </tr>
+                )}
+                {!m.isLoading && rows.length === 0 && (
+                  <tr data-blank-tape="blank_tape">
+                    <td colSpan={4} className="px-4 py-8 text-sm text-warn">
+                      BLANK TAPE — no live quotes; clips held
                     </td>
                   </tr>
                 )}

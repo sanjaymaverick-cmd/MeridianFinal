@@ -56,8 +56,17 @@ function Command() {
               {regime}
             </Badge>
             {asOf && (
-              <Badge tone="neutral">
+              <Badge
+                tone={Date.now() - asOf > 15_000 ? "warn" : "neutral"}
+                data-stuck-clock={Date.now() - asOf > 15_000 ? "stuck_clock" : "ok"}
+              >
                 {formatIst(asOf)} IST · {q.data?.ok ?? 0} live
+                {Date.now() - asOf > 15_000 ? " · STUCK CLOCK" : ""}
+              </Badge>
+            )}
+            {paper.data?.scanHealth && paper.data.scanHealth.status !== "ok" && (
+              <Badge tone="warn" data-scan-health={paper.data.scanHealth.status}>
+                {paper.data.scanHealth.label}
               </Badge>
             )}
           </div>

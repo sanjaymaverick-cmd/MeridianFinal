@@ -81,6 +81,7 @@ import {
   autoOpenSkip,
   farmBucket,
 } from "@/lib/meridian/paper-watch";
+import { assessScanHealth, finitePx, recoverHungLock, SCAN_HUNG_MS, type ScanHealth } from "@/lib/meridian/scan-health";
 
 type QuoteLabel = "live" | "delayed" | "model";
 
@@ -313,6 +314,7 @@ export type PaperBook = {
   heatFarm: number;
   heatPnl: number;
   farmTail: boolean;
+  scanHealth?: ScanHealth;
 };
 
 type Engine = PaperBook & {
@@ -334,9 +336,11 @@ type Engine = PaperBook & {
 const g = globalThis as typeof globalThis & {
   __meridianPaper?: { timer: ReturnType<typeof setInterval>; eng: Engine; rev: number };
   __paperTickLock__?: boolean;
+  __paperTickLockSince__?: number;
+  __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -375,6 +379,7 @@ function emptyEngine(): Engine {
     heatFarm: 0,
     heatPnl: 0,
     farmTail: true,
+    scanHealth: assessScanHealth({ now: Date.now(), lastTick: 0, ticksRun: 0, tickLockSince: null, scan: [], liveCount: 0 }),
     quality: { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 },
   };
 }
@@ -463,6 +468,11 @@ function putLive(eng: Engine, sym: string, last: number, feed: string, delayed: 
 }
 
 async function refreshLive(eng: Engine) {
+  const prevLive = eng.live;
+  const prevFeed = eng.liveFeed;
+  const prevDelayed = eng.delayed;
+  const prevFo = eng.foMeta;
+  const prevVol = eng.vol;
   const live: Record<string, number> = {};
   const feed: Record<string, string> = {};
   const delayed: Record<string, boolean> = {};
@@ -586,6 +596,13 @@ async function refreshLive(eng: Engine) {
     }
   }
 
+  if (Object.keys(eng.live).length === 0 && Object.keys(prevLive).length > 0) {
+    eng.live = prevLive;
+    eng.liveFeed = prevFeed;
+    eng.delayed = prevDelayed;
+    eng.foMeta = prevFo;
+    eng.vol = prevVol;
+  }
   for (const [sym, last] of Object.entries(eng.live)) {
     eng.ticks[sym] = last;
     eng.anchors[sym] = last;
@@ -593,12 +610,57 @@ async function refreshLive(eng: Engine) {
 }
 
 async function tick() {
-  if (g.__paperTickLock__) return;
+  const now = Date.now();
+  const openCount = g.__meridianPaper?.eng.positions.length ?? 0;
+  if (g.__paperTickLock__) {
+    const rec = recoverHungLock({
+      lockHeld: true,
+      lockSince: g.__paperTickLockSince__ ?? null,
+      now,
+      openCount,
+    });
+    if (!rec.recover) return;
+    g.__paperTickGen__ = (g.__paperTickGen__ ?? 0) + 1;
+    g.__paperTickLock__ = false;
+    g.__paperTickLockSince__ = 0;
+    const hung = g.__meridianPaper?.eng;
+    if (hung) {
+      hung.scanHealth = assessScanHealth({
+        now,
+        lastTick: hung.lastTick,
+        ticksRun: hung.ticksRun,
+        tickLockSince: now - SCAN_HUNG_MS,
+        scan: hung.scan,
+        liveCount: Object.keys(hung.live).length,
+        dailyPnl: hung.dailyPnl,
+      });
+    }
+  }
   g.__paperTickLock__ = true;
+  g.__paperTickLockSince__ = now;
+  const gen = g.__paperTickGen__ ?? 0;
+  const eng = g.__meridianPaper?.eng;
+  const backup = eng
+    ? {
+        positions: eng.positions,
+        fills: eng.fills,
+        dailyPnl: eng.dailyPnl,
+        samples: eng.samples,
+        cooldownUntil: { ...eng.cooldownUntil },
+      }
+    : null;
   try {
     await tickUnlocked();
   } finally {
+    if (eng && backup && (g.__paperTickGen__ ?? 0) !== gen) {
+      eng.positions = backup.positions;
+      eng.fills = backup.fills;
+      eng.dailyPnl = backup.dailyPnl;
+      eng.samples = backup.samples;
+      eng.cooldownUntil = backup.cooldownUntil;
+    }
     g.__paperTickLock__ = false;
+    g.__paperTickLockSince__ = 0;
   }
 }
 
@@ -607,7 +669,6 @@ async function tickUnlocked() {
   if (!slot) return;
   const eng = slot.eng;
   eng.ticksRun += 1;
-  eng.lastTick = Date.now();
 
   try {
     await refreshLive(eng);
@@ -648,6 +709,10 @@ async function tickUnlocked() {
       continue;
     }
     const mid = livePx > 0 ? livePx : (eng.ticks[pos.symbol] ?? pos.entryPrice);
+    if (!finitePx(mid)) {
+      still.push(pos);
+      continue;
+    }
     const prof = profileOf(pos.sleeve);
     let intent;
     if (famKey && keptFamily.has(famKey)) {
@@ -972,6 +1037,16 @@ async function tickUnlocked() {
   eng.heatFarm = eng.positions.filter((p) => (p.sleeve ?? "farm") === "farm").reduce((a, p) => a + p.sizePct, 0);
   eng.heatPnl = eng.positions.filter((p) => p.sleeve === "pnl").reduce((a, p) => a + p.sizePct, 0);
   eng.scan = scan;
+  eng.lastTick = Date.now();
+  eng.scanHealth = assessScanHealth({
+    now: eng.lastTick,
+    lastTick: eng.lastTick,
+    ticksRun: eng.ticksRun,
+    tickLockSince: g.__paperTickLockSince__ ?? null,
+    scan,
+    liveCount: Object.keys(eng.live).length,
+    dailyPnl: eng.dailyPnl,
+  });
   try {
     await mkdir(DATA_DIR, { recursive: true });
     await writeFile(
@@ -987,6 +1062,7 @@ async function tickUnlocked() {
           promoted: getArtefact().promoted,
           auc: getArtefact().auc,
           ticksRun: eng.ticksRun,
+          scanHealth: eng.scanHealth?.status,
           liveNames: Object.keys(eng.live).length,
           source: "binance-live+fo",
           profile: "farm+pnl",
@@ -1085,6 +1161,15 @@ export function snapshotBook(): PaperBook {
     heatFarm: e.heatFarm ?? 0,
     heatPnl: e.heatPnl ?? 0,
     farmTail: !!e.farmTail,
+    scanHealth: e.scanHealth ?? assessScanHealth({
+      now: Date.now(),
+      lastTick: e.lastTick,
+      ticksRun: e.ticksRun,
+      tickLockSince: g.__paperTickLockSince__ ?? null,
+      scan: e.scan,
+      liveCount: Object.keys(e.live).length,
+      dailyPnl: e.dailyPnl,
+    }),
     meta: {
       n: art.n,
       auc: art.auc,

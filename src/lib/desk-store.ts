@@ -3,6 +3,7 @@ import { DEMO_HOLDINGS, type HoldingRow } from "@/lib/meridian/portfolio";
 import type { Position } from "@/lib/meridian/decision";
 import { UNIVERSE } from "@/lib/meridian/universe";
 import { SNAPSHOT } from "@/lib/meridian/tickers";
+import type { ScanHealth } from "@/lib/meridian/scan-health";
 
 export type DeskMode = "advisory" | "paper" | "auto";
 
@@ -49,6 +50,7 @@ type DeskState = {
   heatFarm: number;
   heatPnl: number;
   lastTick: number;
+  scanHealth: ScanHealth | null;
   focusSymbol: string;
   flash: Record<string, "up" | "down">;
   setMode: (m: DeskMode) => void;
@@ -73,6 +75,7 @@ type DeskState = {
     heatFarm?: number;
     heatPnl?: number;
     lastTick?: number;
+    scanHealth?: ScanHealth;
     error?: string;
   }) => void;
 };
@@ -99,6 +102,7 @@ export const useDesk = create<DeskState>((set, get) => ({
   heatFarm: 0,
   heatPnl: 0,
   lastTick: 0,
+  scanHealth: null,
   focusSymbol: "",
   flash: {},
   setMode: (mode) => set({ mode }),
@@ -149,6 +153,7 @@ export const useDesk = create<DeskState>((set, get) => ({
     const cur = get();
     if (
       cur.lastTick === (book.lastTick ?? 0) &&
+      cur.scanHealth?.status === (book.scanHealth?.status ?? cur.scanHealth?.status) &&
       cur.mode === book.mode &&
       cur.killed === book.killed &&
       cur.dailyPnl === book.dailyPnl &&
@@ -175,6 +180,7 @@ export const useDesk = create<DeskState>((set, get) => ({
       heatFarm: book.heatFarm ?? cur.heatFarm,
       heatPnl: book.heatPnl ?? cur.heatPnl,
       lastTick: book.lastTick ?? cur.lastTick,
+      scanHealth: book.scanHealth ?? cur.scanHealth,
       flash,
     });
   },

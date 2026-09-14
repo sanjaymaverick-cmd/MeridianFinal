@@ -202,6 +202,11 @@ export function DeskShell({ children }: { children: ReactNode }) {
           </span>
           <span>{positions.length} clips</span>
           {closed && <span className="text-warn">NSE CLOSED</span>}
+          {paper.data?.scanHealth && paper.data.scanHealth.status !== "ok" && (
+            <span className="text-warn" data-scan-health={paper.data.scanHealth.status}>
+              {paper.data.scanHealth.label}
+            </span>
+          )}
           <Button size="sm" variant="ghost" disabled={guest || positions.length === 0} onClick={() => void paperSend({ type: "flatten_all" })}>
             Flatten all
           </Button>
