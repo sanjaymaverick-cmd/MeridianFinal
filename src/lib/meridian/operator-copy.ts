@@ -36,7 +36,7 @@ export function hedgeReviewLots(hedgeLots: number): string {
 export const MODE_CHIPS = [
   { id: "advisory" as const, label: "Signals", hint: "Propose. Do not send." },
   { id: "paper" as const, label: "Paper", hint: "Approve / Skip / Size. 15s auto-skip. Kite off." },
-  { id: "auto" as const, label: "Auto-send", hint: "Crypto spot farm. Paper only. Kite off." },
+  { id: "auto" as const, label: "Auto-send", hint: "Paper auto-send. Overnight farm. Kite off." },
 ];
 
 /** Paper Action Center: proposal expires unless Approve / Skip. */
