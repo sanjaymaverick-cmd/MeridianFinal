@@ -34,6 +34,7 @@ import {
 import { barrierFromExit, tripleBarrier } from "@/lib/meridian/triple-barrier";
 import { loadArtefactFromDisk, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
+import { quotePathOf } from "@/lib/meridian/quote-path";
 import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
 import {
   PRED_FEED,
@@ -93,6 +94,7 @@ type Fill = {
   price: number;
   reason: string;
   quoteLabel?: QuoteLabel;
+  quotePath?: string;
   expiry?: string;
   strike?: number;
   right?: string;
@@ -237,6 +239,10 @@ function quoteLabelOf(feed: string | undefined, delayed: boolean | undefined): Q
   return "live";
 }
 
+function quoteBits(feed: string | undefined, delayed: boolean | undefined) {
+  return { quoteLabel: quoteLabelOf(feed, delayed), quotePath: quotePathOf(feed) };
+}
+
 function foFields(sym: string, meta?: { expiry?: string; strike?: number; right?: string; contract?: string }) {
   const parsed = parseFo(sym);
   return {
@@ -336,7 +342,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -670,7 +676,7 @@ async function tickUnlocked() {
       const closeSide = pos.side === "short" ? "BUY" : "SELL";
       const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
       const pnl = pnlOf(pos, px);
-      const label = quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]);
+      const qbits = quoteBits(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]);
       const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
       const fill: Fill = {
         id: `${now}-${pos.symbol}-x-${Math.random().toString(16).slice(2, 8)}`,
@@ -680,7 +686,7 @@ async function tickUnlocked() {
         qty: pos.qty,
         price: px,
         reason: `${intent.reason}:${pos.side}:paper`,
-        quoteLabel: label,
+        ...qbits,
         sleeve: pos.sleeve,
         ...extra,
       };
@@ -736,7 +742,8 @@ async function tickUnlocked() {
         expiry: extra.expiry,
         strike: extra.strike,
         right: extra.right,
-        quoteLabel: label,
+        quoteLabel: qbits.quoteLabel,
+        quotePath: qbits.quotePath,
         features: pos.features,
         farmBucket: pos.farmBucket ?? farmBucket(pos.symbol),
       });
@@ -785,7 +792,7 @@ async function tickUnlocked() {
         qty: pos.qty,
         price: px,
         reason: `no_leverage:${pos.side}:paper`,
-        quoteLabel: quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]),
+        ...quoteBits(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]),
         sleeve: pos.sleeve,
         ...extra,
       };
@@ -901,7 +908,7 @@ async function tickUnlocked() {
       const qty = qtyFor(row.sym, px, sizePct, eng.ticks);
       if (qty <= 0) continue;
       const extra = foFields(row.sym, eng.foMeta[row.sym]);
-      const label = quoteLabelOf(eng.liveFeed[row.sym], eng.delayed[row.sym]);
+      const qbits = quoteBits(eng.liveFeed[row.sym], eng.delayed[row.sym]);
       const pos: Position = {
         symbol: row.sym,
         side,
@@ -923,7 +930,7 @@ async function tickUnlocked() {
         expiry: extra.expiry,
         strike: extra.strike,
         right: extra.right,
-        quoteLabel: label,
+        quoteLabel: qbits.quoteLabel,
         sleeve,
         costBps: roundTripBps(cls),
         features: row.f,
@@ -940,7 +947,7 @@ async function tickUnlocked() {
         qty,
         price: px,
         reason: `${sleeve}:${pos.reasonOpen}:paper`,
-        quoteLabel: label,
+        ...qbits,
         sleeve,
         ...extra,
       };
@@ -1240,6 +1247,7 @@ function predOpenNow(e: Engine, symbol: string, now: number): string | undefined
     price: px,
     reason,
     quoteLabel: pos.quoteLabel,
+    quotePath: quotePathOf(PRED_FEED),
     sleeve: PRED_SLEEVE,
     expiry: pos.expiry,
     right: pos.right,
@@ -1296,6 +1304,7 @@ async function settlePredWindows(eng: Engine, now: number) {
       price: px,
       reason: `pred_settle:${source}:${held}:paper`,
       quoteLabel: "live",
+      quotePath: quotePathOf(source === "polymarket" ? "polymarket" : "binance"),
       sleeve: PRED_SLEEVE,
       expiry: pos.expiry,
       right: pos.right,
@@ -1355,7 +1364,7 @@ function flattenNow(e: Engine, symbol: string, now: number) {
         qty: pos.qty,
         price: px,
         reason: `flatten_operator:pred:paper`,
-        quoteLabel: quoteLabelOf(e.liveFeed[pos.symbol], e.delayed[pos.symbol]),
+        ...quoteBits(e.liveFeed[pos.symbol], e.delayed[pos.symbol]),
         sleeve: PRED_SLEEVE,
         expiry: pos.expiry,
         right: pos.right,
@@ -1372,7 +1381,7 @@ function flattenNow(e: Engine, symbol: string, now: number) {
     const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
     const pnl = pnlOf(pos, px);
     const extra = foFields(pos.symbol, e.foMeta[pos.symbol]);
-    const label = quoteLabelOf(e.liveFeed[pos.symbol], e.delayed[pos.symbol]);
+    const qbits = quoteBits(e.liveFeed[pos.symbol], e.delayed[pos.symbol]);
     const fill: Fill = {
       id: `${now}-${pos.symbol}-flat-${Math.random().toString(16).slice(2, 8)}`,
       ts: now,
@@ -1381,7 +1390,7 @@ function flattenNow(e: Engine, symbol: string, now: number) {
       qty: pos.qty,
       price: px,
       reason: `flatten_operator:${pos.side}:paper`,
-      quoteLabel: label,
+      ...qbits,
       sleeve: pos.sleeve,
       ...extra,
     };
@@ -1423,7 +1432,7 @@ function openNow(
   const qty = qtyIn && qtyIn > 0 ? qtyIn : qtyFor(symbol, px, sizePct, e.ticks);
   if (qty <= 0) return "zero_size";
   const extra = foFields(symbol, e.foMeta[symbol]);
-  const label = quoteLabelOf(e.liveFeed[symbol], e.delayed[symbol]);
+  const qbits = quoteBits(e.liveFeed[symbol], e.delayed[symbol]);
   const pos: Position = {
     symbol,
     side,
@@ -1445,7 +1454,7 @@ function openNow(
     expiry: extra.expiry,
     strike: extra.strike,
     right: extra.right,
-    quoteLabel: label,
+    quoteLabel: qbits.quoteLabel,
     sleeve,
     costBps: roundTripBps(cls),
     farmBucket: farmBucket(symbol),
@@ -1459,7 +1468,7 @@ function openNow(
     qty,
     price: px,
     reason: `${sleeve}:${reason}:paper`,
-    quoteLabel: label,
+    ...qbits,
     sleeve,
     ...extra,
   };

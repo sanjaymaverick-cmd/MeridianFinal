@@ -152,6 +152,7 @@ function Command() {
                     <th className="font-medium">Side</th>
                     <th className="font-medium">Qty</th>
                     <th className="font-medium">Price</th>
+                    <th className="font-medium">Quote</th>
                     <th className="font-medium">Reason</th>
                     <th className="font-medium"> </th>
                   </tr>
@@ -159,7 +160,7 @@ function Command() {
                 <tbody>
                   {fills.slice(0, 8).map((f) => (
                     <tr key={f.id} className="border-t border-border">
-                      <td className="py-2 font-mono text-xs text-muted">{formatIstStamp(f.ts)}</td>
+                      <td className="py-2 font-mono text-xs text-muted" data-fill-ts>{formatIstStamp(f.ts)}</td>
                       <td className="font-mono text-xs">
                         {f.symbol}
                         {(f.expiry || f.strike) && (
@@ -169,6 +170,9 @@ function Command() {
                       <td className={f.side === "BUY" ? "text-up" : "text-down"}>{f.side}</td>
                       <td>{f.qty}</td>
                       <td className="font-mono">{f.price.toFixed(2)}</td>
+                      <td className="font-mono text-xs text-muted" data-quote-path>
+                        {f.quotePath ?? "quote:last"}
+                      </td>
                       <td className="text-muted">{explainReason(f.reason)}</td>
                       <td>
                         {positions.some((p) => p.symbol === f.symbol) ? (
