@@ -1,6 +1,24 @@
 import { PROMOTE_MIN_AUC, PROMOTE_MIN_HIT, PROMOTE_MIN_N } from "./kelly";
 export { explainReason } from "./reasons";
 
+/** QuoteLabel enum value "live" stays; UI must not paint paper as broker live. */
+export type QuoteLabelUi = "live" | "delayed" | "model";
+
+/** English quote source for fill tape — never the word "live". */
+export function quoteSourceEnglish(label: QuoteLabelUi | string | undefined | null): string {
+  if (label === "delayed") return "delayed quote";
+  if (label === "model") return "model quote";
+  // "live" and missing → not-delayed last (feed last), not a Kite fill
+  return "not delayed last";
+}
+
+/** Sleeve chip on fill tape. */
+export function sleeveEnglish(sleeve: "farm" | "pnl" | "pred" | string | undefined | null): string {
+  if (sleeve === "pnl") return "PnL";
+  if (sleeve === "pred") return "Pred";
+  return "Farm";
+}
+
 export const MODE_CHIPS = [
   { id: "advisory" as const, label: "Signals", hint: "Propose. Do not send." },
   { id: "paper" as const, label: "Paper", hint: "Farm labels. Kite off." },

@@ -10,7 +10,7 @@ import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
 import { PromotionChip } from "@/components/promotion-strip";
-import { explainReason, MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import { explainReason, MODE_CHIPS, quoteSourceEnglish, sleeveEnglish } from "@/lib/meridian/operator-copy";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
 import { paperSend } from "@/lib/desk-ops";
@@ -254,13 +254,22 @@ function AutoPage() {
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
           <h2 className="text-sm font-medium">Fill tape</h2>
-          <ul className="fill-tape mt-3 space-y-2">
+          <ul className="fill-tape mt-3 space-y-2" data-fill-tape>
             {fills.slice(0, 12).map((f) => (
-              <li key={f.id} className="flex flex-wrap items-center gap-3 text-sm" style={{ animation: "flash-up var(--motion-regular) var(--ease-out-desk)" }}>
+              <li key={f.id} className="flex flex-wrap items-center gap-3 text-sm" data-fill-row style={{ animation: "flash-up var(--motion-regular) var(--ease-out-desk)" }}>
+                <span className="font-mono text-[11px] text-muted" data-fill-ts>
+                  {formatIstStamp(f.ts)}
+                </span>
                 <Badge tone={f.side === "BUY" ? "up" : "down"}>{f.side}</Badge>
                 <span className="font-mono text-xs">{f.symbol}</span>
                 <span className="text-muted">
-                  {f.qty} @ {f.price.toFixed(2)} <span className="font-mono text-[11px]">{formatIstStamp(f.ts)}</span>
+                  {f.qty} @ {f.price.toFixed(2)}
+                </span>
+                <Badge tone={f.sleeve === "pnl" ? "up" : "neutral"} data-fill-sleeve>
+                  {sleeveEnglish(f.sleeve)}
+                </Badge>
+                <span className="text-subtle" data-quote-source>
+                  {quoteSourceEnglish(f.quoteLabel)}
                 </span>
                 <span className="text-subtle">{explainReason(f.reason)}</span>
               </li>

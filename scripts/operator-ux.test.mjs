@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -233,3 +234,62 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+test("IMP-12 Fill tape: one timestamp; sleeve; quote source English not live", () => {
+  const copyPath = join(root, "../src/lib/meridian/operator-copy.ts");
+  const copyBody = readFileSync(copyPath, "utf8")
+    .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+    .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const reasonsBody = readFileSync(join(root, "../src/lib/meridian/reasons.ts"), "utf8");
+  const src = reasonsBody + "\n" + copyBody + `
+    if (quoteSourceEnglish("live") !== "not delayed last") throw new Error("live→ " + quoteSourceEnglish("live"));
+    if (/\\blive\\b/i.test(quoteSourceEnglish("live"))) throw new Error("must not say live");
+    if (quoteSourceEnglish("delayed") !== "delayed quote") throw new Error(quoteSourceEnglish("delayed"));
+    if (quoteSourceEnglish("model") !== "model quote") throw new Error(quoteSourceEnglish("model"));
+    if (quoteSourceEnglish(undefined) !== "not delayed last") throw new Error("missing");
+    if (sleeveEnglish("farm") !== "Farm") throw new Error(sleeveEnglish("farm"));
+    if (sleeveEnglish("pnl") !== "PnL") throw new Error(sleeveEnglish("pnl"));
+    if (sleeveEnglish("pred") !== "Pred") throw new Error(sleeveEnglish("pred"));
+    if (sleeveEnglish(undefined) !== "Farm") throw new Error("default sleeve");
+
+    const reason = explainReason("farm:fade_short:paper");
+    if (/\\blive\\b/i.test(reason)) throw new Error("reason paints live: " + reason);
+    if (!/fade/i.test(reason)) throw new Error(reason);
+  `;
+  const dir = mkdtempSync(join(tmpdir(), "imp12-"));
+  const file = join(dir, "fill-tape.ts");
+  writeFileSync(file, src);
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", file], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const store = readFileSync(join(root, "../src/lib/desk-store.ts"), "utf8");
+  assert.match(store, /quoteLabel\?: "live" \| "delayed" \| "model"/);
+  assert.match(store, /sleeve\?: "farm" \| "pnl" \| "pred"/);
+
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /data-fill-tape/);
+  assert.match(autoPage, /data-fill-ts/);
+  assert.match(autoPage, /data-fill-sleeve/);
+  assert.match(autoPage, /data-quote-source/);
+  assert.match(autoPage, /quoteSourceEnglish\(f\.quoteLabel\)/);
+  assert.match(autoPage, /sleeveEnglish\(f\.sleeve\)/);
+  const tape = autoPage.slice(autoPage.indexOf("data-fill-tape"), autoPage.indexOf("Other scan rows"));
+  const stamps = tape.match(/formatIstStamp\(f\.ts\)/g) || [];
+  assert.equal(stamps.length, 1, "one timestamp on fill tape row, got " + stamps.length);
+  assert.doesNotMatch(tape, /@ \{f\.price\.toFixed\(2\)\} <span[^>]*>\{formatIstStamp/);
+
+  const cmd = readFileSync(join(root, "../src/routes/index.tsx"), "utf8");
+  assert.match(cmd, /data-fill-ts/);
+  assert.match(cmd, /data-fill-sleeve/);
+  assert.match(cmd, /data-quote-source/);
+  assert.match(cmd, /quoteSourceEnglish\(f\.quoteLabel\)/);
+  const cmdFills = cmd.slice(cmd.indexOf("Latest paper fills"), cmd.indexOf("function Stat"));
+  const cmdStamps = cmdFills.match(/formatIstStamp\(f\.ts\)/g) || [];
+  assert.equal(cmdStamps.length, 1, "Command fills one timestamp");
+
+  const copy = readFileSync(copyPath, "utf8");
+  assert.match(copy, /not delayed last/);
+  assert.doesNotMatch(copy, /QuoteLabelUi = "last"/);
+});
+

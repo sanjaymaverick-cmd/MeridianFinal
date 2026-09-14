@@ -8,7 +8,7 @@ import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
 import type { MarketState } from "@/lib/meridian/advice";
 import { PromotionChip } from "@/components/promotion-strip";
-import { explainReason } from "@/lib/meridian/operator-copy";
+import { explainReason, quoteSourceEnglish, sleeveEnglish } from "@/lib/meridian/operator-copy";
 import { getPaperBook } from "@/lib/server/desk";
 import { paperSend } from "@/lib/desk-ops";
 import { DeskTilt } from "@/components/desk-tilt";
@@ -144,7 +144,7 @@ function Command() {
             <p className="text-sm text-muted">No fills yet. Set mode to Paper or Auto (Halt off) so the engine can work the watchlist.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="text-[11px] uppercase tracking-wider text-subtle">
                   <tr>
                     <th className="py-2 font-medium">Time</th>
@@ -152,14 +152,16 @@ function Command() {
                     <th className="font-medium">Side</th>
                     <th className="font-medium">Qty</th>
                     <th className="font-medium">Price</th>
+                    <th className="font-medium">Sleeve</th>
+                    <th className="font-medium">Quote</th>
                     <th className="font-medium">Reason</th>
                     <th className="font-medium"> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {fills.slice(0, 8).map((f) => (
-                    <tr key={f.id} className="border-t border-border">
-                      <td className="py-2 font-mono text-xs text-muted">{formatIstStamp(f.ts)}</td>
+                    <tr key={f.id} className="border-t border-border" data-fill-row>
+                      <td className="py-2 font-mono text-xs text-muted" data-fill-ts>{formatIstStamp(f.ts)}</td>
                       <td className="font-mono text-xs">
                         {f.symbol}
                         {(f.expiry || f.strike) && (
@@ -169,6 +171,8 @@ function Command() {
                       <td className={f.side === "BUY" ? "text-up" : "text-down"}>{f.side}</td>
                       <td>{f.qty}</td>
                       <td className="font-mono">{f.price.toFixed(2)}</td>
+                      <td data-fill-sleeve>{sleeveEnglish(f.sleeve)}</td>
+                      <td className="text-muted" data-quote-source>{quoteSourceEnglish(f.quoteLabel)}</td>
                       <td className="text-muted">{explainReason(f.reason)}</td>
                       <td>
                         {positions.some((p) => p.symbol === f.symbol) ? (
