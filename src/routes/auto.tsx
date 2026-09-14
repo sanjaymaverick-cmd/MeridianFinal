@@ -40,7 +40,11 @@ function AutoPage() {
   const heat = (paper.data?.heatFarm ?? 0) + (paper.data?.heatPnl ?? 0);
 
   async function downloadSamples() {
-    const rows = await getPaperSamples();
+    const pack = await getPaperSamples();
+    const rows = Array.isArray(pack) ? pack : pack.rows;
+    const summary = Array.isArray(pack)
+      ? null
+      : pack.summary;
     const cols = [
       "symbol", "side", "hold_sec", "fwd_ret", "reason_close", "quality_hold", "contaminated", "set", "pnl",
     ];
@@ -48,12 +52,28 @@ function AutoPage() {
       const s = v == null ? "" : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => esc((r as Record<string, unknown>)[c])).join(","))].join("\n");
+    const preamble = summary
+      ? [
+          "# Meridian sample download — fit set vs contaminated labelled (IMP-21)",
+          `# ${summary.legend}`,
+          `# source=${summary.source} artefact_n=${summary.artefactN} download_n=${summary.downloadN} jsonl_total_n=${summary.jsonlTotalN}`,
+          `# fit=${summary.fitN} contaminated=${summary.contaminatedN} quality_hold=${summary.qualityHoldN}`,
+          `# ${summary.countsMatchArtefact ? "counts_match_auc_artefact=yes" : summary.mismatchLabel ?? "counts_match_auc_artefact=no"}`,
+        ].join("\n")
+      : "# Meridian sample download";
+    const csv = [preamble, cols.join(","), ...rows.map((r) => cols.map((c) => esc((r as Record<string, unknown>)[c])).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `meridian-fit-samples-${Date.now()}.csv`;
     a.click();
+    if (summary?.countsMatchArtefact) {
+      toast.message(
+        `Fit download matches AUC artefact n=${summary.artefactN}. Fit ${summary.fitN} · contaminated ${summary.contaminatedN} · quality holds ${summary.qualityHoldN}.`,
+      );
+    } else if (summary?.mismatchLabel) {
+      toast.message(summary.mismatchLabel);
+    }
   }
 
   const pending = scan.filter((r) => r.action === "BUY" || r.action === "SELL");
@@ -90,9 +110,16 @@ function AutoPage() {
             More
           </Button>
           <div className={`flex flex-wrap gap-2 ${menu ? "" : "hidden"}`}>
-            <Button variant="outline" onClick={() => void downloadSamples()}>
+            <Button
+              variant="outline"
+              title="Fit set vs contaminated labelled. Counts must match AUC artefact n or mismatch is labelled."
+              onClick={() => void downloadSamples()}
+            >
               Download fit samples
             </Button>
+            <p className="w-full text-[11px] text-subtle">
+              Fit set (set=fit) vs contaminated (time_stop or hold under 120s). CSV header compares download n to AUC artefact n — match or mismatch labelled.
+            </p>
             {resetAsk ? (
               <>
                 <Button

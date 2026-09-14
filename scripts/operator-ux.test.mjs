@@ -233,3 +233,103 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+
+test("IMP-21 sample download: fit vs contaminated labelled; counts match AUC artefact or mismatch labelled", () => {
+  const fitHref = pathToFileURL(join(root, "../src/lib/meridian/fit-samples.ts")).href;
+  const src = `
+    import {
+      isContaminatedSample,
+      labelFitSampleRow,
+      summarizeFitDownload,
+      fitDownloadCsvPreamble,
+    } from ${JSON.stringify(fitHref)};
+
+    if (!isContaminatedSample("time_stop:short:paper", 90)) throw new Error("time_stop must contaminate");
+    if (!isContaminatedSample("hard_stop", 60)) throw new Error("short hold must contaminate");
+    if (isContaminatedSample("trail_stop", 400)) throw new Error("quality hold must stay clean");
+
+    const clean = labelFitSampleRow({
+      symbol: "BTC",
+      side: "long",
+      hold_sec: 400,
+      reason_close: "trail_stop",
+      fwd_ret: 0.01,
+      pnl: 10,
+      source: "fit-jsonl",
+    });
+    if (clean.set !== "fit" || clean.contaminated || !clean.quality_hold) throw new Error("clean fit " + JSON.stringify(clean));
+
+    const dirty = labelFitSampleRow({
+      symbol: "ETH",
+      side: "short",
+      hold_sec: 90,
+      reason_close: "time_stop:short:paper",
+      source: "fit-jsonl",
+    });
+    if (dirty.set !== "contaminated" || !dirty.contaminated || dirty.quality_hold) throw new Error("contaminated " + JSON.stringify(dirty));
+
+    const live = labelFitSampleRow({
+      symbol: "SOL",
+      side: "long",
+      hold_sec: 400,
+      reason_close: "trail_stop",
+      source: "live-db",
+    });
+    if (live.set !== "live-db") throw new Error("live-db set " + live.set);
+
+    const match = summarizeFitDownload({
+      rows: [clean, dirty],
+      artefactN: 2,
+      source: "fit-jsonl",
+      jsonlTotalN: 2,
+    });
+    if (!match.countsMatchArtefact || match.mismatchLabel) throw new Error("expected match " + JSON.stringify(match));
+    if (match.fitN !== 1 || match.contaminatedN !== 1) throw new Error("split " + JSON.stringify(match));
+
+    const trunc = summarizeFitDownload({
+      rows: [clean, dirty],
+      artefactN: 8629,
+      source: "fit-jsonl",
+      jsonlTotalN: 8629,
+    });
+    if (trunc.countsMatchArtefact || !/truncated|mismatch/i.test(String(trunc.mismatchLabel))) {
+      throw new Error("truncated mismatch " + JSON.stringify(trunc));
+    }
+
+    const liveSum = summarizeFitDownload({
+      rows: [live],
+      artefactN: 8629,
+      source: "live-db",
+      jsonlTotalN: 0,
+    });
+    if (liveSum.countsMatchArtefact || !/live DB/i.test(String(liveSum.mismatchLabel))) {
+      throw new Error("live mismatch " + JSON.stringify(liveSum));
+    }
+
+    const pre = fitDownloadCsvPreamble(match);
+    if (!/fit set vs contaminated/i.test(pre)) throw new Error("preamble legend");
+    if (!/counts_match_auc_artefact=yes/.test(pre)) throw new Error("preamble match bit");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /exportFitSamplesDownload/);
+  assert.match(engine, /summarizeFitDownload/);
+  assert.match(engine, /labelFitSampleRow/);
+  const rev = engine.match(/const ENGINE_REV = (\d+)/);
+  assert.ok(rev && Number(rev[1]) >= 36, "ENGINE_REV " + rev?.[1]);
+
+  const desk = readFileSync(join(root, "../src/lib/server/desk.ts"), "utf8");
+  assert.match(desk, /exportFitSamplesDownload\(100_000\)/);
+
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /fit set vs contaminated/i);
+  assert.match(autoPage, /counts_match_auc_artefact/);
+  assert.match(autoPage, /mismatchLabel/);
+  assert.match(autoPage, /Download fit samples/);
+});
+
