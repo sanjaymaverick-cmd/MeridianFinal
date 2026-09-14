@@ -231,5 +231,16 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
   assert.match(autoPage, /crypto spot only/i);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
-  assert.match(chips, /Crypto spot farm/);
+  assert.match(chips, /Paper auto-send\. Overnight farm\. Kite off\./);
+});
+
+test("IMP-23 Auto chip copy: Paper auto-send. Overnight farm. Kite off.", () => {
+  const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  const auto = chips.match(/id: "auto" as const, label: "Auto", hint: "([^"]+)"/);
+  assert.ok(auto, "MODE_CHIPS auto entry missing");
+  assert.equal(auto[1], "Paper auto-send. Overnight farm. Kite off.");
+  assert.doesNotMatch(chips, /Crypto spot farm/);
+  // tooltip wiring still uses MODE_CHIPS hints
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /title=\{m\.hint\}/);
 });
