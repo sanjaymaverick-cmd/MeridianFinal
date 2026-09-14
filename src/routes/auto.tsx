@@ -16,8 +16,10 @@ import {
   explainReason,
   MODE_CHIPS,
   PAPER_AUTO_SKIP_SEC,
+  signalsCanApprove,
   sizeLadder,
   suggestedQty,
+  wouldActionLabel,
 } from "@/lib/meridian/operator-copy";
 import type { ScanRow } from "@/lib/desk-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -35,6 +37,7 @@ function AutoPage() {
   const ticks = useDesk((s) => s.ticks);
   const dailyPnl = useDesk((s) => s.dailyPnl);
   const scan = useDesk((s) => s.scan);
+  const lastTick = useDesk((s) => s.lastTick);
   const { user, isPending } = useCurrentUserState();
   const guest = !isPending && !user;
   const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
@@ -157,10 +160,19 @@ function AutoPage() {
           />
         </div>
 
-        <div className="rounded-[24px] border border-border bg-surface p-5" data-action-center>
-          <h2 className="text-sm font-medium">
-            {killed ? "HALTED — no new clips" : mode === "advisory" ? "Action center — would send, not sent" : "Action center"}
-          </h2>
+        <div
+          className="rounded-[24px] border border-border bg-surface p-5"
+          data-action-center
+          data-signals-tape={mode === "advisory" ? "1" : undefined}
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-medium">
+              {killed ? "HALTED — no new clips" : mode === "advisory" ? "Signals tape — would send, not sent" : "Action center"}
+            </h2>
+            <p className="font-mono text-[11px] text-subtle" data-last-scan>
+              Last scan · {lastTick > 0 ? formatIstStamp(lastTick) : "…"} IST
+            </p>
+          </div>
           <p className="mt-1 text-xs text-subtle">{actionCenterBlurb(mode, killed)}</p>
           {scan.length === 0 ? (
             <p className="mt-3 text-sm text-muted">Waiting on the next scan tick.</p>
@@ -295,7 +307,7 @@ function ActionCenterRow({
   killed: boolean;
 }) {
   const actionable = !killed && (row.action === "BUY" || row.action === "SELL");
-  const showApprove = actionable && (mode === "advisory" || mode === "paper");
+  const showApprove = actionable && signalsCanApprove(mode);
   const paperTimer = showApprove && mode === "paper";
   const baseQty = suggestedQty(row.px || 0, row.sizePct || 0.015);
   const ladder = sizeLadder(baseQty);
@@ -334,8 +346,8 @@ function ActionCenterRow({
       data-action-row={row.symbol}
     >
       <span className="font-mono text-xs">{row.symbol}</span>
-      <Badge tone={row.action === "BUY" ? "up" : row.action === "SELL" ? "down" : "neutral"}>
-        {mode === "advisory" && (row.action === "BUY" || row.action === "SELL") ? `Would ${row.action}` : row.action}
+      <Badge tone={row.action === "BUY" ? "up" : row.action === "SELL" ? "down" : "neutral"} data-would-action={mode === "advisory" ? wouldActionLabel(row.action, mode) : undefined}>
+        {wouldActionLabel(row.action, mode)}
       </Badge>
       <span className="text-muted">{(row.metaProb * 100).toFixed(0)}% meta</span>
       {showApprove && (

@@ -527,3 +527,49 @@ test("IMP-09 promotion verdict strip: gates actual vs required; quality vs 90s; 
   assert.match(copy, /90s time-stops/);
   assert.match(copy, /Keep the farm sleeve on paper/);
 });
+
+test("IMP-11 Signals tape: Would BUY/SELL not sent; last scan refreshes; no new fills", () => {
+  const copyPath = join(root, "../src/lib/meridian/operator-copy.ts");
+  const copyBody = readFileSync(copyPath, "utf8")
+    .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+    .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const src = copyBody + `
+    if (wouldActionLabel("BUY", "advisory") !== "Would BUY") throw new Error("would buy");
+    if (wouldActionLabel("SELL", "advisory") !== "Would SELL") throw new Error("would sell");
+    if (wouldActionLabel("BUY", "paper") !== "BUY") throw new Error("paper buy");
+    if (wouldActionLabel("FLAT", "advisory") !== "FLAT") throw new Error("flat");
+    if (signalsCanApprove("advisory")) throw new Error("Signals must not Approve");
+    if (!signalsCanApprove("paper")) throw new Error("Paper may Approve");
+    if (signalsCanApprove("auto")) throw new Error("Auto has no Approve ladder");
+
+    const blurb = actionCenterBlurb("advisory", false);
+    if (!/Would BUY \\/ Would SELL/i.test(blurb) || !/not sent/i.test(blurb)) throw new Error("blurb would: " + blurb);
+    if (!/Last scan still refreshes/i.test(blurb)) throw new Error("blurb scan: " + blurb);
+    if (!/No new fills/i.test(blurb)) throw new Error("blurb fills: " + blurb);
+    if (/Approve opens a paper clip/i.test(blurb)) throw new Error("Signals must not open on Approve");
+  `;
+  const dir = mkdtempSync(join(tmpdir(), "imp11-"));
+  const file = join(dir, "signals-tape.ts");
+  writeFileSync(file, src);
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", file], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /const ENGINE_REV = (3[7-9]|[4-9]\d)/);
+  assert.match(engine, /error: "signals_propose_only"/);
+  assert.match(engine, /e\.mode === "advisory"/);
+  assert.match(engine, /autoCanSend\(eng\.mode, eng\.killed\)/);
+
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /data-signals-tape/);
+  assert.match(autoPage, /data-last-scan/);
+  assert.match(autoPage, /Last scan/);
+  assert.match(autoPage, /wouldActionLabel/);
+  assert.match(autoPage, /signalsCanApprove/);
+  assert.match(autoPage, /lastTick/);
+  assert.doesNotMatch(autoPage, /showApprove = actionable && \(mode === "advisory" \|\| mode === "paper"\)/);
+
+  const watches = readFileSync(join(root, "../src/lib/meridian/paper-watch.ts"), "utf8");
+  assert.match(watches, /mode === "auto" && !killed/);
+});

@@ -1195,6 +1195,8 @@ export function operatorAction(cmd: OperatorCmd): PaperBook & { error?: string }
   } else if (cmd.type === "flatten") {
     flattenNow(e, bare(cmd.symbol), now);
   } else if (cmd.type === "open") {
+    if (e.mode === "advisory") return { ...snapshotBook(), error: "signals_propose_only" };
+    if (e.killed) return { ...snapshotBook(), error: "paused" };
     const sym = bare(cmd.symbol);
     const err = isPredSymbol(sym) || cmd.sleeve === PRED_SLEEVE
       ? predOpenNow(e, sym, now)

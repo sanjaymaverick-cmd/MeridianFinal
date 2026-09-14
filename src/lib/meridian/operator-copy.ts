@@ -29,12 +29,24 @@ export function autoSkipLabel(secondsLeft: number): string {
   return `Auto-skip ${s}s`;
 }
 
+
+/** Signals tape: label BUY/SELL as Would … (not sent). */
+export function wouldActionLabel(action: string, mode: "advisory" | "paper" | "auto"): string {
+  if (mode === "advisory" && (action === "BUY" || action === "SELL")) return `Would ${action}`;
+  return action;
+}
+
+/** True when Action Center may Approve / Size (Paper only). Signals never sends. */
+export function signalsCanApprove(mode: "advisory" | "paper" | "auto"): boolean {
+  return mode === "paper";
+}
+
 export function actionCenterBlurb(mode: "advisory" | "paper" | "auto", killed: boolean): string {
   if (killed) {
     return "No new clips. Open risk still here — hard stop, time stop, trail, and session exits still run. Resume paper from Halt.";
   }
   if (mode === "advisory") {
-    return "Approve opens a paper clip. Skip cools the name for 15 minutes. Size picks ½ / 1× / 1½. Stops still run. Cash/F&O/MCX stay propose-only.";
+    return "Would BUY / Would SELL — not sent. Last scan still refreshes. No new fills. Skip cools a name. Switch to Paper for Approve / Size.";
   }
   if (mode === "paper") {
     return "Paper waits for Approve / Skip / Size. 15s auto-skip is labelled on each proposal. Flatten one per open clip. Kite stays off.";
