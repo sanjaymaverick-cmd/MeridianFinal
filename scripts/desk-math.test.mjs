@@ -159,3 +159,69 @@ test("paper close samples: net label, fee-adjusted fwdRet, :paper reasons, no pr
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
+
+test("IMP-18 sleeve caps: farm 16, PnL 4, quarter-Kelly only after promote", () => {
+  const src = `
+    import { FARM_MAX_POS, PNL_MAX_POS, LIVE_MAX_POS, sleeveOpenSkip } from ${JSON.stringify(files.sleeves)};
+    import { kellySizePct, KELLY_FRACTION, shouldPromote, PROMOTE_MIN_N, PROMOTE_MIN_AUC, PROMOTE_MIN_HIT } from ${JSON.stringify(files.kelly)};
+
+    if (FARM_MAX_POS !== 16) throw new Error("farm max " + FARM_MAX_POS);
+    if (PNL_MAX_POS !== 4) throw new Error("pnl max " + PNL_MAX_POS);
+    if (LIVE_MAX_POS !== 2) throw new Error("live max " + LIVE_MAX_POS);
+    if (KELLY_FRACTION !== 0.25) throw new Error("quarter-Kelly " + KELLY_FRACTION);
+
+    if (PROMOTE_MIN_N !== 2000 || PROMOTE_MIN_AUC !== 0.55 || PROMOTE_MIN_HIT !== 0.52) {
+      throw new Error("gates lowered");
+    }
+    if (shouldPromote(PROMOTE_MIN_N - 1, 0.99, "paper", 0.99)) throw new Error("n gate");
+    if (shouldPromote(PROMOTE_MIN_N, 0.99, "synth", 0.99)) throw new Error("synth");
+
+    if (sleeveOpenSkip({ kelly: true, maxPos: PNL_MAX_POS, nOpen: 0, promoted: false }) !== "not_promoted") {
+      throw new Error("pnl flat until promote");
+    }
+    if (sleeveOpenSkip({ kelly: true, maxPos: PNL_MAX_POS, nOpen: 0, promoted: true }) !== null) {
+      throw new Error("pnl open when promoted");
+    }
+    if (sleeveOpenSkip({ kelly: true, maxPos: PNL_MAX_POS, nOpen: 4, promoted: true }) !== "max_positions") {
+      throw new Error("pnl max 4");
+    }
+    if (sleeveOpenSkip({ kelly: true, maxPos: PNL_MAX_POS, nOpen: 3, promoted: true }) !== null) {
+      throw new Error("pnl 3 ok");
+    }
+    if (sleeveOpenSkip({ kelly: false, maxPos: FARM_MAX_POS, nOpen: 16, promoted: false }) !== "max_positions") {
+      throw new Error("farm max 16");
+    }
+    if (sleeveOpenSkip({ kelly: false, maxPos: FARM_MAX_POS, nOpen: 15, promoted: false }) !== null) {
+      throw new Error("farm 15 ok");
+    }
+    if (sleeveOpenSkip({ kelly: false, maxPos: FARM_MAX_POS, nOpen: 0, promoted: false }) !== null) {
+      throw new Error("farm without promote ok");
+    }
+
+    const qk = kellySizePct(0.7, 0.02, 0.08);
+    if (!(qk > 0) || qk > 0.08) throw new Error("quarter-Kelly size " + qk);
+    if (Math.abs(qk - 0.08) > 1e-9) throw new Error("expected clamp to max " + qk);
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const decision = readFileSync(files.decisionSrc, "utf8");
+  assert.match(decision, /MAX_POS: FARM_MAX_POS/);
+  assert.match(decision, /MAX_POS: PNL_MAX_POS/);
+  assert.match(decision, /kelly: false/);
+  assert.match(decision, /kelly: true/);
+  assert.match(decision, /TP_R: 2\.2/);
+  assert.match(decision, /sleeveOpenSkip\(\{/);
+  assert.match(decision, /kelly: profile\.kelly/);
+  assert.doesNotMatch(decision, /MAX_POS: 16/);
+  assert.doesNotMatch(decision, /MAX_POS: 4/);
+
+  const engine = readFileSync(files.engine, "utf8");
+  assert.match(engine, /sleeveOpenSkip/);
+  assert.match(engine, /kelly: profile\.kelly/);
+  assert.match(engine, /maxPos: profile\.MAX_POS/);
+  assert.match(engine, /ENGINE_REV = 36/);
+  assert.match(engine, /nOpen >= profile\.MAX_POS/);
+});
