@@ -23,7 +23,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "desktop": "electron .",
-    "dist:win": "node scripts/pack-win.mjs"
+    "dist:win": "node scripts/pack-win.mjs",
+    "secret-scan": "node scripts/secret-scan.mjs --ci"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

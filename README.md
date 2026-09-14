@@ -16,4 +16,4 @@ Test login: `WQ3137` / `Test@password`
 
 Python engines: `meridian_final/`. Spec: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md)
 
-Kite keys never belong in git. This is personal software. You can lose the whole book. Nothing here is an order.
+Kite keys never belong in git. `npm run secret-scan` (and CI) fails the PR if secrets/`.env` appear in the tree or diff. This is personal software. You can lose the whole book. Nothing here is an order.

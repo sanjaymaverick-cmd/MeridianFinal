@@ -105,6 +105,17 @@ Edit `.env`:
 
 Kite keys stay out of git. Paper first.
 
+## Secret scan (IMP-08)
+
+Keys, `.env`, and `data/**` artefacts must never land in git or a PR diff.
+
+```bash
+npm run secret-scan          # tree + diff vs main (also runs in CI)
+npm test                     # includes secret-scan unit + live tree gate
+```
+
+GitHub Action `.github/workflows/secret-scan.yml` fails the PR on findings. Do not stage `.env` or `data/*.json(l)`.
+
 ## If something fails
 
 **`npm` not found** — reinstall Node 22 and reopen the terminal.
