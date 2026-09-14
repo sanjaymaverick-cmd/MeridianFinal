@@ -225,3 +225,33 @@ test("IMP-18 sleeve caps: farm 16, PnL 4, quarter-Kelly only after promote", () 
   assert.match(engine, /ENGINE_REV = 36/);
   assert.match(engine, /nOpen >= profile\.MAX_POS/);
 });
+
+test("IMP-06 promote math: three gates; missing hitRate=0; no synth; test-split hit", () => {
+  const src = `
+    import { shouldPromote, PROMOTE_MIN_N, PROMOTE_MIN_AUC, PROMOTE_MIN_HIT } from ${JSON.stringify(files.kelly)};
+    if (shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "paper")) throw new Error("missing hitRate must be 0 / fail");
+    if (shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "paper", 0)) throw new Error("hitRate 0 must fail");
+    if (shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "synth", PROMOTE_MIN_HIT + 0.1)) throw new Error("synth");
+    if (shouldPromote(PROMOTE_MIN_N - 1, PROMOTE_MIN_AUC, "paper", PROMOTE_MIN_HIT + 0.1)) throw new Error("n gate");
+    if (shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC - 0.01, "paper", PROMOTE_MIN_HIT + 0.1)) throw new Error("auc gate");
+    if (shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "paper", PROMOTE_MIN_HIT)) throw new Error("hit must be > min");
+    if (!shouldPromote(PROMOTE_MIN_N, PROMOTE_MIN_AUC, "paper", PROMOTE_MIN_HIT + 0.01)) throw new Error("clear gates");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const retrain = readFileSync(join(root, "../src/lib/server/retrain.ts"), "utf8");
+  assert.match(retrain, /timeSplit\(/);
+  assert.match(retrain, /const \{ train, test \} = timeSplit/);
+  assert.match(retrain, /hitRate\(yte\)/);
+  assert.match(retrain, /shouldPromote\(parsed\.n, parsed\.auc, parsed\.source, parsed\.hitRate\)/);
+
+  const kelly = readFileSync(join(root, "../src/lib/meridian/kelly.ts"), "utf8");
+  assert.match(kelly, /hitRate = 0/);
+  assert.match(kelly, /source !== "paper"/);
+  assert.match(kelly, /PROMOTE_MIN_N = 2_000/);
+  assert.match(kelly, /PROMOTE_MIN_AUC = 0\.55/);
+  assert.match(kelly, /PROMOTE_MIN_HIT = 0\.52/);
+});
