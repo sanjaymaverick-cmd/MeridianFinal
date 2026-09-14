@@ -14,6 +14,7 @@ import {
   actionCenterBlurb,
   autoSkipLabel,
   explainReason,
+  LIVE_CHROME,
   MODE_CHIPS,
   PAPER_AUTO_SKIP_SEC,
   quoteSourceEnglish,
@@ -137,6 +138,15 @@ function AutoPage() {
               {m.label}
             </Button>
           ))}
+          <Button
+            variant="outline"
+            disabled
+            title={LIVE_CHROME.hint}
+            aria-disabled="true"
+            data-live-chrome="locked"
+          >
+            {LIVE_CHROME.label} · locked
+          </Button>
           <Button variant="outline" onClick={() => setMenu((v) => !v)}>
             More
           </Button>

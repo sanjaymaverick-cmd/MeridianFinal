@@ -9,6 +9,8 @@ import { cn, inr, formatPx } from "@/lib/utils";
 import { AutoEngine, setDeskKilled } from "@/components/auto-engine";
 import { QuotesHydrator } from "@/components/quotes-hydrator";
 import { deskIdentityStrip } from "@/lib/meridian/identity-strip";
+import { LIVE_CHROME } from "@/lib/meridian/operator-copy";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { nseCashClosed } from "@/lib/meridian/session-lock";
@@ -179,6 +181,9 @@ export function DeskShell({ children }: { children: ReactNode }) {
               {identity.engine}
             </span>
             <span className="rounded border border-border px-1.5 py-0.5">{identity.kite}</span>
+            <Badge tone="neutral" title={LIVE_CHROME.hint} data-live-chrome="locked">
+              {LIVE_CHROME.label} locked
+            </Badge>
           </div>
           <div className="flex items-center gap-2">
             <Button

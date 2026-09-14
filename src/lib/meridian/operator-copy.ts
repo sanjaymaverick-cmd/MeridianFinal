@@ -39,6 +39,14 @@ export const MODE_CHIPS = [
   { id: "auto" as const, label: "Auto-send", hint: "Paper auto-send. Overnight farm. Kite off." },
 ];
 
+/** Live Kite chrome — always locked. Do not implement F6 / LIVE_OK. */
+export const LIVE_CHROME = {
+  id: "live" as const,
+  label: "Live",
+  hint: "Locked. No F6. Kite off.",
+  locked: true as const,
+};
+
 /** Paper Action Center: proposal expires unless Approve / Skip. */
 export const PAPER_AUTO_SKIP_SEC = 15;
 
