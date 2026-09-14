@@ -1,7 +1,7 @@
 {
   "name": "meridian-final",
   "productName": "Meridian Final",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Meridian Final - paper multi-asset desk. Not an order.",
   "author": "Meridian",
   "private": true,
