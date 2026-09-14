@@ -10,7 +10,7 @@ import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
 import { PromotionChip } from "@/components/promotion-strip";
-import { explainReason, MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import { explainReason, LIVE_CHROME, MODE_CHIPS } from "@/lib/meridian/operator-copy";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
 import { paperSend } from "@/lib/desk-ops";
@@ -86,6 +86,15 @@ function AutoPage() {
               {m.label}
             </Button>
           ))}
+          <Button
+            variant="outline"
+            disabled
+            title={LIVE_CHROME.hint}
+            aria-disabled="true"
+            data-live-chrome="locked"
+          >
+            {LIVE_CHROME.label} · locked
+          </Button>
           <Button variant="outline" onClick={() => setMenu((v) => !v)}>
             More
           </Button>

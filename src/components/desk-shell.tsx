@@ -9,7 +9,7 @@ import { useDesk } from "@/lib/desk-store";
 import { cn, inr, formatPx } from "@/lib/utils";
 import { AutoEngine, setDeskKilled } from "@/components/auto-engine";
 import { QuotesHydrator } from "@/components/quotes-hydrator";
-import { MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import { LIVE_CHROME, MODE_CHIPS } from "@/lib/meridian/operator-copy";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { nseCashClosed } from "@/lib/meridian/session-lock";
@@ -159,6 +159,9 @@ export function DeskShell({ children }: { children: ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             <Badge tone={killed ? "down" : mode === "auto" || mode === "paper" ? "warn" : "neutral"}>
               {killed ? "Halted" : (MODE_CHIPS.find((m) => m.id === mode)?.label ?? mode)}
+            </Badge>
+            <Badge tone="neutral" title={LIVE_CHROME.hint} data-live-chrome="locked">
+              {LIVE_CHROME.label} locked
             </Badge>
             <Button
               size="sm"

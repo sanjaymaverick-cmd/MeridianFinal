@@ -7,6 +7,14 @@ export const MODE_CHIPS = [
   { id: "auto" as const, label: "Auto", hint: "Crypto spot farm. Paper only. Kite off." },
 ];
 
+/** Live Kite chrome — always locked. Do not implement F6 / LIVE_OK. */
+export const LIVE_CHROME = {
+  id: "live" as const,
+  label: "Live",
+  hint: "Locked. No F6. Kite off.",
+  locked: true as const,
+};
+
 export type PromotionMeta = {
   n: number;
   auc: number;
