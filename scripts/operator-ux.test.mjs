@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -232,4 +233,87 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   assert.match(autoPage, /crypto spot only/i);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
+});
+
+test("IMP-09 promotion verdict strip: gates actual vs required; quality vs 90s; English next", () => {
+  const copyPath = join(root, "../src/lib/meridian/operator-copy.ts");
+  const copyBody = readFileSync(copyPath, "utf8")
+    .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+    .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const src = copyBody + `
+    const empty = promotionVerdict(undefined);
+    if (empty.ready) throw new Error("empty should not be ready");
+    if (!empty.next || empty.next.length < 12) throw new Error("english next: " + empty.next);
+    if (!/farm sleeve on paper/i.test(empty.next)) throw new Error("next action: " + empty.next);
+    if (!/quality holds/i.test(empty.holds) || !/90s time-stops/i.test(empty.holds)) {
+      throw new Error("holds: " + empty.holds);
+    }
+
+    const by = Object.fromEntries(empty.gates.map((g) => [g.label, g]));
+    for (const label of ["Sample count", "AUC", "Hit rate", "Source"]) {
+      if (!by[label]) throw new Error("missing gate " + label);
+    }
+    if (by["Sample count"].pass) throw new Error("n should fail");
+    if (!by["Sample count"].detail.includes(String(PROMOTE_MIN_N)) && !by["Sample count"].detail.includes("2,000") && !by["Sample count"].detail.includes("2,00")) {
+      throw new Error("n actual vs required: " + by["Sample count"].detail);
+    }
+    if (by["AUC"].pass || !by["AUC"].detail.includes(PROMOTE_MIN_AUC.toFixed(2))) {
+      throw new Error("auc actual vs required: " + by["AUC"].detail);
+    }
+    if (by["Hit rate"].pass || !/52/.test(by["Hit rate"].detail)) {
+      throw new Error("hit actual vs required: " + by["Hit rate"].detail);
+    }
+    if (by["Source"].pass || !/synth/i.test(by["Source"].detail)) throw new Error("source: " + by["Source"].detail);
+
+    const missingHit = promotionVerdict({ n: 2500, auc: 0.6, promoted: true, source: "paper", timeStopN: 1800, qualityHoldN: 200 });
+    if (missingHit.ready) throw new Error("missing hitRate must default 0 and block");
+    const hitG = missingHit.gates.find((g) => g.label === "Hit rate");
+    if (!hitG || hitG.pass || !hitG.detail.startsWith("0%")) throw new Error("missing hit: " + hitG?.detail);
+    if (!/200/.test(missingHit.holds) || !/1,800|1800/.test(missingHit.holds)) throw new Error("holds counts: " + missingHit.holds);
+
+    const clear = promotionVerdict({
+      n: PROMOTE_MIN_N,
+      auc: PROMOTE_MIN_AUC,
+      hitRate: PROMOTE_MIN_HIT + 0.01,
+      promoted: true,
+      source: "paper",
+      timeStopN: 400,
+      qualityHoldN: 1600,
+    });
+    if (!clear.ready) throw new Error("clear gates should be ready");
+    if (!clear.gates.every((g) => g.pass)) throw new Error("all gates pass: " + JSON.stringify(clear.gates));
+    if (!/Kite stays off/i.test(clear.next)) throw new Error("ready next: " + clear.next);
+    if (!/1,600|1600/.test(clear.holds) || !/400/.test(clear.holds)) throw new Error("ready holds: " + clear.holds);
+    if (!/quality holds/i.test(clear.holds)) throw new Error("ready holds missing");
+
+    const synth = promotionVerdict({ n: PROMOTE_MIN_N, auc: 0.9, hitRate: 0.9, promoted: true, source: "synth", timeStopN: 0, qualityHoldN: 0 });
+    if (synth.ready) throw new Error("synth must not promote");
+    if (!/source/i.test(synth.body)) throw new Error("synth blocker: " + synth.body);
+  `;
+  const dir = mkdtempSync(join(tmpdir(), "imp09-"));
+  const file = join(dir, "verdict.ts");
+  writeFileSync(file, src);
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", file], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+
+  const index = readFileSync(join(root, "../src/routes/index.tsx"), "utf8");
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  const strip = readFileSync(join(root, "../src/components/promotion-strip.tsx"), "utf8");
+  assert.match(index, /import \{ PromotionStrip \} from "@\/components\/promotion-strip"/);
+  assert.match(index, /<PromotionStrip meta=\{paper\.data\?\.meta\} \/>/);
+  assert.doesNotMatch(index, /PromotionChip/);
+  assert.match(autoPage, /import \{ PromotionStrip \} from "@\/components\/promotion-strip"/);
+  assert.match(autoPage, /<PromotionStrip meta=\{paper\.data\?\.meta\} \/>/);
+  assert.doesNotMatch(autoPage, /PromotionChip/);
+  assert.match(strip, /data-promotion-strip/);
+  assert.match(strip, /data-promotion-holds/);
+  assert.match(strip, /data-promotion-next/);
+  assert.match(strip, /Next: \{v\.next\}/);
+  assert.match(strip, /\{v\.holds\}/);
+  assert.match(strip, /gates\.map/);
+  const copy = readFileSync(copyPath, "utf8");
+  assert.match(copy, /quality holds \(≥5 min\) vs/);
+  assert.match(copy, /90s time-stops/);
+  assert.match(copy, /Keep the farm sleeve on paper/);
 });
