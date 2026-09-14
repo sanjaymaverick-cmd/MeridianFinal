@@ -233,3 +233,72 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+
+test("IMP-20 Book vs paper: CSV = Holdings; score may show; meta n/a until promote; ledgers stay separate", () => {
+  const book = readFileSync(join(root, "../src/routes/portfolio.tsx"), "utf8");
+  assert.match(book, /Paper clips/);
+  assert.match(book, /\bHoldings\b/);
+  assert.match(book, /Imported Zerodha CSV is a second tab/);
+  assert.match(book, /Import CSV = Holdings/);
+  assert.match(book, /Holdings invested/);
+  assert.match(book, /Holdings unrealised/);
+  assert.match(book, /does not feed Paper P&L/);
+  assert.match(book, /Score/);
+  assert.match(book, /r\.score\?\.toFixed\(2\)/);
+  assert.match(book, /n\/a — not promoted/);
+  assert.match(book, /promoted \? `\$\{\(r\.metaProb \* 100\)\.toFixed\(0\)\}%` : "n\/a — not promoted"/);
+  assert.match(book, /Factor \$\{r\.action\}/);
+  assert.match(book, /five-factor only/);
+  // tabs: clips default; holdings separate — no single merged table of clips+CSV
+  assert.match(book, /useState<"clips" \| "imported">\("clips"\)/);
+  assert.match(book, /\{tab === "clips" &&/);
+  assert.match(book, /\{tab === "imported" &&/);
+  // paper realised only on clips pane; holdings KPIs only on imported pane
+  const clipsStart = book.indexOf("{tab === \"clips\" &&");
+  const importedStart = book.indexOf("{tab === \"imported\" &&");
+  assert.ok(clipsStart > 0 && importedStart > clipsStart, "clip/imported panes ordered");
+  const clips = book.slice(clipsStart, importedStart);
+  const imported = book.slice(importedStart);
+  assert.match(clips, /Realised \{inr\(dailyPnl\)\}/);
+  assert.doesNotMatch(clips, /Holdings invested/);
+  assert.match(imported, /Holdings invested/);
+  assert.match(imported, /n\/a — not promoted/);
+  assert.doesNotMatch(imported, /Realised \{inr\(dailyPnl\)\}/);
+
+  const cmd = readFileSync(join(root, "../src/routes/index.tsx"), "utf8");
+  assert.match(cmd, />Holdings</);
+  assert.match(cmd, /Imported CSV — not paper clips/);
+  assert.match(cmd, /PnL here is not the desk book/);
+  assert.match(cmd, /holdingsValue/);
+  assert.match(cmd, /holdingsPnl/);
+  assert.match(cmd, /label="Paper P&L"/);
+  assert.match(cmd, /value=\{inr\(dailyPnl\)\}/);
+  assert.match(cmd, /Factor \$\{r\.action\}/);
+  assert.match(cmd, /meta n\/a/);
+  assert.match(cmd, /Open Book · Paper clips \+ Holdings/);
+  assert.doesNotMatch(cmd, /Imported book/);
+  // must not sum holdings PnL into paper dailyPnl display
+  assert.doesNotMatch(cmd, /dailyPnl\s*\+/);
+  assert.doesNotMatch(cmd, /\bbookPnl\b|\bbookValue\b/);
+
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  assert.match(shell, /Paper P&L \{inr\(dailyPnl\)\}/);
+  assert.match(shell, /Paper MTM \{inr\(mtm\)\}/);
+  // MTM from paper positions only
+  assert.match(shell, /positions\.reduce/);
+  assert.doesNotMatch(shell, /holdings\.reduce/);
+
+  const store = readFileSync(join(root, "../src/lib/desk-store.ts"), "utf8");
+  const resetStart = store.indexOf("resetPaper: () =>\n    set({");
+  assert.ok(resetStart > 0, "resetPaper impl");
+  const reset = store.slice(resetStart, resetStart + 220);
+  assert.match(reset, /positions:\s*\[\]/);
+  assert.match(reset, /dailyPnl:\s*0/);
+  assert.doesNotMatch(reset, /holdings/);
+  const hydrateStart = store.indexOf("hydratePaper: (book) =>");
+  assert.ok(hydrateStart > 0, "hydratePaper impl");
+  const hydrate = store.slice(hydrateStart, hydrateStart + 1200);
+  assert.doesNotMatch(hydrate, /holdings\s*:/);
+  assert.match(hydrate, /dailyPnl:\s*book\.dailyPnl/);
+});

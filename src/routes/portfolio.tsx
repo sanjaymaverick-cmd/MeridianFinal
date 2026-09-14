@@ -135,15 +135,18 @@ function PortfolioPage() {
         {tab === "imported" && (
           <>
         <div className="grid gap-4 md:grid-cols-3">
-          <Kpi label="Invested" value={inr(invested)} />
-          <Kpi label="Mark" value={inr(value)} />
-          <Kpi label="Unrealised" value={inr(value - invested)} up={value - invested >= 0} />
+          <Kpi label="Holdings invested" value={inr(invested)} />
+          <Kpi label="Holdings mark" value={inr(value)} />
+          <Kpi label="Holdings unrealised" value={inr(value - invested)} up={value - invested >= 0} />
         </div>
+        <p className="text-xs text-subtle">
+          Holdings PnL is imported CSV only. It does not feed Paper P&L or clip MTM on the desk strip.
+        </p>
 
         <div className="rounded-[24px] border border-border bg-surface p-5">
-          <h2 className="text-sm font-medium">Import</h2>
+          <h2 className="text-sm font-medium">Import CSV = Holdings</h2>
           <p className="mt-1 text-sm text-muted">
-            Headers such as Instrument, Qty., Avg. cost, LTP. Or paste below. Sample is preloaded as Core — Zerodha.
+            Headers such as Instrument, Qty., Avg. cost, LTP. Or paste below. Five-factor score may show; META stays n/a until promote. Sample is preloaded as Core — Zerodha.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <label className="inline-flex h-11 cursor-pointer items-center rounded-[8px] border border-border px-4 text-sm">

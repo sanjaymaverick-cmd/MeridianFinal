@@ -29,9 +29,10 @@ function Command() {
   const ticks = useDesk((s) => s.ticks);
   const fills = useDesk((s) => s.fills);
   const regime = (q.data?.state.regime ?? "Calm") as MarketState["regime"];
+  const promoted = !!paper.data?.meta?.promoted;
   const reviews = holdings.map((h) => reviewHolding({ ...h, lastPrice: ticks[h.symbol] ?? h.lastPrice }, regime));
-  const bookValue = reviews.reduce((a, r) => a + r.value, 0);
-  const bookPnl = reviews.reduce((a, r) => a + r.pnl, 0);
+  const holdingsValue = reviews.reduce((a, r) => a + r.value, 0);
+  const holdingsPnl = reviews.reduce((a, r) => a + r.pnl, 0);
   const nifty = q.data?.state.nifty ?? ticks.NIFTY ?? 24252;
   const asOf = q.data?.asOf;
   const closed = nseCashClosed();
@@ -120,20 +121,24 @@ function Command() {
             </div>
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5 lg:col-span-2">
-            <h2 className="mb-4 text-sm font-medium">Imported book</h2>
-            <p className="font-mono text-2xl tabular-nums">{inr(bookValue)}</p>
-            <p className={`mt-1 text-sm ${bookPnl >= 0 ? "text-up" : "text-down"}`}>{inr(bookPnl)} vs cost</p>
+            <h2 className="mb-1 text-sm font-medium">Holdings</h2>
+            <p className="mb-3 text-[11px] text-subtle">Imported CSV — not paper clips. PnL here is not the desk book.</p>
+            <p className="font-mono text-2xl tabular-nums">{inr(holdingsValue)}</p>
+            <p className={`mt-1 text-sm ${holdingsPnl >= 0 ? "text-up" : "text-down"}`}>{inr(holdingsPnl)} vs cost</p>
             <ul className="mt-4 space-y-2">
               {reviews.slice(0, 6).map((r) => (
-                <li key={r.symbol} className="flex items-center justify-between text-sm">
+                <li key={r.symbol} className="flex items-center justify-between gap-2 text-sm">
                   <span className="font-mono text-xs">{r.symbol}</span>
-                  <span className="text-muted">{r.action}</span>
+                  <span className="text-muted">{promoted ? r.action : `Factor ${r.action}`}</span>
+                  <span className="font-mono text-[11px] text-subtle">
+                    {promoted ? `${(r.metaProb * 100).toFixed(0)}%` : "meta n/a"}
+                  </span>
                   <span className={r.pnl >= 0 ? "text-up" : "text-down"}>{inr(r.pnl)}</span>
                 </li>
               ))}
             </ul>
             <Link to="/portfolio" className="mt-4 inline-block text-sm text-muted underline-offset-4 hover:text-fg hover:underline">
-              Open full book
+              Open Book · Paper clips + Holdings
             </Link>
           </div>
         </section>
