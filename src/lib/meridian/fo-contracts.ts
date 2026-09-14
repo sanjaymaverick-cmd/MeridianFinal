@@ -267,11 +267,24 @@ export function isNseFo(sym: string): boolean {
   return u.endsWith("FUT") || u.endsWith("CE") || u.endsWith("PE");
 }
 
-/** NSE F&O only while the cash session is open. Binance names stay 24/7. */
+/** NSE F&O only while the cash session is open. Binance names stay 24/7.
+ *  Cost class uses this as the nse_fo flag — do not fold cash names in here.
+ */
 export function isNseHoursOnly(sym: string, feed?: string) {
   if ((feed ?? "").startsWith("binance")) return false;
   if (isCryptoFo(sym)) return false;
   return isNseFo(sym) || feed === "nse-opt-model";
+}
+
+/** 24/7 paper names: Binance feed, crypto F&O, BTC/ETH/SOL family, prediction clips. */
+export function isCryptoHoursName(symbol: string, feed?: string) {
+  if ((feed ?? "").startsWith("binance")) return true;
+  if (isCryptoFo(symbol)) return true;
+  const u = symbol.toUpperCase();
+  if (u === "BTC5M_YES" || u === "BTC5M_NO") return true;
+  if (u === "BTC" || u === "ETH" || u === "SOL") return true;
+  if (u.startsWith("BTC") || u.startsWith("ETH") || u.startsWith("SOL")) return true;
+  return cryptoFamily(symbol) != null;
 }
 
 export type OpenSkipPos = { symbol: string; sleeve?: string };
@@ -295,7 +308,8 @@ export function openSkipReason(args: {
 }): string | null {
   const sleeve = args.sleeve ?? "farm";
   const feed = args.feed ?? "";
-  if (!args.openSession && isNseHoursOnly(args.symbol, feed)) return "nse_session_closed";
+  // Cash + INR F&O wait for the NSE cash session. Crypto (Binance) stays 24/7.
+  if (!args.openSession && !isCryptoHoursName(args.symbol, feed)) return "nse_session_closed";
   if (isCryptoFo(args.symbol) && (!feed.startsWith("binance") || args.delayed)) return "stale_model";
   const symU = args.symbol.toUpperCase();
   // Word-safe: do NOT use /PE|CE/ (that blocked PEPE and friends).
