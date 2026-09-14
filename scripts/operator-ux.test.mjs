@@ -233,3 +233,158 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+// --- IMP-22 Lane 1 regression pack (assert what origin/main already has) ---
+
+test("IMP-01 identity honesty on main: Signals/Paper/Auto, Kite off, Resume paper, no Arm", () => {
+  // Full MOCK ₹ strip lives on fix/imp-01; main still must not look armable.
+  const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(chips, /id: "advisory" as const, label: "Signals"/);
+  assert.match(chips, /id: "paper" as const, label: "Paper"/);
+  assert.match(chips, /id: "auto" as const, label: "Auto"/);
+  assert.match(chips, /Kite off/);
+  assert.doesNotMatch(chips, /label: "Live"/);
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  assert.match(shell, /Resume paper/);
+  assert.doesNotMatch(shell, /\bArm\b/);
+  const login = readFileSync(join(root, "../src/routes/login.tsx"), "utf8");
+  assert.match(login, /Kite off/);
+});
+
+test("IMP-02 fill tagging: scan/flatten/open money-path ends :paper; no :live`", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /flatten_operator:\$\{pos\.side\}:paper/);
+  assert.match(engine, /\$\{sleeve\}:\$\{reason\}:paper/);
+  assert.match(engine, /\$\{intent\.reason\}:\$\{pos\.side\}:paper/);
+  assert.match(engine, /\$\{sleeve\}:\$\{pos\.reasonOpen\}:paper/);
+  assert.doesNotMatch(engine, /:live`/);
+  assert.doesNotMatch(engine, /flatten_operator:[^`\n]*:live/);
+  // explainReason maps :live quote enum to "paper quote" English (not broker live)
+  const reasons = readFileSync(join(root, "../src/lib/meridian/reasons.ts"), "utf8");
+  assert.match(reasons, /paper quote/i);
+});
+
+test("IMP-03 boot contract: emptyEngine advisory+killed; ENGINE_REV >= 21", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  const rev = engine.match(/const ENGINE_REV = (\d+)/);
+  assert.ok(rev && Number(rev[1]) >= 21, "ENGINE_REV " + rev?.[1]);
+  const empty = engine.slice(engine.indexOf("function emptyEngine"), engine.indexOf("function emptyEngine") + 500);
+  assert.match(empty, /mode:\s*"advisory"/);
+  assert.match(empty, /killed:\s*true/);
+});
+
+test("IMP-04 kill split on main: Pause does not flatten; exits still run; Reset confirms", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+
+  const flags = engine.slice(engine.indexOf("export function setEngineFlags"), engine.indexOf("export function resetEngine"));
+  assert.match(flags, /if \(patch\.killed != null\) e\.killed = patch\.killed/);
+  assert.doesNotMatch(flags, /flatten/i);
+  assert.doesNotMatch(flags, /positions\s*=\s*\[\]/);
+
+  assert.match(engine, /intent = manage\(/);
+  assert.match(engine, /autoCanSend\(eng\.mode, eng\.killed\)/);
+  const manageIdx = engine.indexOf("intent = manage(");
+  const killedGateBeforeManage = engine.lastIndexOf("if (eng.killed", manageIdx);
+  assert.ok(
+    killedGateBeforeManage < 0 || manageIdx - killedGateBeforeManage > 800,
+    "manage/exits must not sit behind eng.killed",
+  );
+
+  // Flatten confirm UI is open PR IMP-04; main still has one-click Flatten all — do not require flattenAsk.
+  assert.match(shell, /flatten_all/);
+  assert.match(autoPage, /resetAsk/);
+  assert.match(autoPage, /Confirm reset/);
+  assert.match(autoPage, /setResetAsk\(true\)/);
+});
+
+test("IMP-05 guest + origin: OMS auth; localhost and 127.0.0.1; guest banner honest", () => {
+  const desk = readFileSync(join(root, "../src/lib/server/desk.ts"), "utf8");
+  const flags = desk.slice(desk.indexOf("export const setPaperFlags"), desk.indexOf("export const resetPaperBook"));
+  const reset = desk.slice(desk.indexOf("export const resetPaperBook"), desk.indexOf("export const getPaperSamples"));
+  assert.match(flags, /authMiddleware/);
+  assert.match(reset, /authMiddleware/);
+  assert.match(desk, /runPaperOp[\s\S]{0,80}authMiddleware/);
+
+  const auth = readFileSync(join(root, "../src/lib/auth/server.ts"), "utf8");
+  assert.match(auth, /http:\/\/localhost:8080/);
+  assert.match(auth, /http:\/\/127\.0\.0\.1:8080/);
+  assert.match(auth, /http:\/\/localhost:3000/);
+  assert.match(auth, /http:\/\/127\.0\.0\.1:3000/);
+  assert.match(auth, /allowedHosts: \[[\s\S]*"localhost"[\s\S]*"127\.0\.0\.1"/);
+
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+  assert.match(autoPage, /Sign in to Halt, change mode, or reset the shared book/);
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  assert.match(shell, /Sign in to halt/);
+  assert.match(shell, /disabled=\{guest/);
+});
+
+test("IMP-07 META copy on main: n/a not 0%; Factor Buy; two ledgers named", () => {
+  const book = readFileSync(join(root, "../src/routes/portfolio.tsx"), "utf8");
+  assert.match(book, /n\/a — not promoted/);
+  assert.match(book, /promoted \? `\$\{\(r\.metaProb \* 100\)\.toFixed\(0\)\}%` : "n\/a — not promoted"/);
+  assert.match(book, /Factor \$\{r\.action\}/);
+  assert.match(book, /Paper clips/);
+  assert.match(book, /\bHoldings\b/);
+  assert.match(book, /Imported Zerodha CSV is a second tab/);
+  assert.match(book, /do not add size on meta/);
+
+  const advice = readFileSync(join(root, "../src/lib/meridian/advice.ts"), "utf8");
+  assert.match(advice, /Do not treat Book Buy as model-backed/);
+  // Calm arm is promoted-gated on main; Elevated 0.55 fix is open IMP-07 PR — assert Calm only.
+  const calm = advice.slice(advice.lastIndexOf("} else {"));
+  assert.match(
+    calm,
+    /promoted\s*\?\s*"Calm regime\.[\s\S]*0\.55[\s\S]*:\s*"Calm tape, but the paper model is not promoted/,
+  );
+
+  const copy = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(copy, /treat Book Buy as model-backed/);
+  assert.match(copy, /Ignore Command cash advice that assumes a 0\.55 meta gate/);
+
+  const adviceUrl = pathToFileURL(join(root, "../src/lib/meridian/advice.ts")).href;
+  const src = `
+    import { buildAdvice } from ${JSON.stringify(adviceUrl)};
+    const base = {
+      nifty: 25000, niftyChg: 0, bankNifty: 52000, bankChg: 0, indiaVix: 12, pcr: 1,
+      btc: 100000, btcChg: 0, gold: 70000, goldChg: 0, usdinr: 84, usdinrChg: 0,
+      crude: 70, crudeChg: 0, regime: "Calm", session: "open", asOf: Date.now(), source: "test",
+    };
+    const off = buildAdvice(base, { promoted: false }).find((c) => c.id === "spot-1");
+    if (!off || /0\\.55/.test(off.body) || !/model-backed/i.test(off.body)) throw new Error("Calm unpromoted: " + off?.body);
+    const on = buildAdvice(base, { promoted: true }).find((c) => c.id === "spot-1");
+    if (!on || !/0\\.55/.test(on.body)) throw new Error("Calm promoted: " + on?.body);
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+test("IMP-08 secret hygiene on main: .env not tracked; no private-key PEM in source", () => {
+  // Full secret-scan.mjs is open IMP-08 PR; gate what main can already enforce.
+  const tracked = spawnSync("git", ["ls-files"], { cwd: join(root, ".."), encoding: "utf8" });
+  assert.equal(tracked.status, 0, tracked.stderr);
+  const files = tracked.stdout.split("\n").filter(Boolean);
+  const banned = files.filter((p) => {
+    if (/\.env\.example$/.test(p)) return false;
+    if (/(^|\/)\.env($|\.)/.test(p)) return true;
+    if (/(^|\/)id_rsa$|\.pem$|credentials\.json$/i.test(p)) return true;
+    if (/^data\/(paper-samples\.jsonl|paper-heartbeat\.json)$/.test(p)) return true;
+    return false;
+  });
+  assert.deepEqual(banned, [], "tracked banned paths: " + banned.join(", "));
+
+  const pemRe = /BEGIN [A-Z0-9 ]*PRIVATE KEY/;
+  const scanExt = /\.(ts|tsx|js|mjs|cjs|json|md|yml|yaml|sh|bat|env)$/i;
+  const leaks = [];
+  for (const p of files) {
+    if (!scanExt.test(p)) continue;
+    if (p.startsWith("data/")) continue;
+    const text = readFileSync(join(root, "..", p), "utf8");
+    if (pemRe.test(text)) leaks.push(p);
+  }
+  assert.deepEqual(leaks, [], "PEM private key in tree: " + leaks.join(", "));
+});
