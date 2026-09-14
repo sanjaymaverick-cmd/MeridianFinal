@@ -7,7 +7,7 @@ import { useDesk } from "@/lib/desk-store";
 import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
 import type { MarketState } from "@/lib/meridian/advice";
-import { PromotionChip } from "@/components/promotion-strip";
+import { PromotionStrip } from "@/components/promotion-strip";
 import { explainReason } from "@/lib/meridian/operator-copy";
 import { getPaperBook } from "@/lib/server/desk";
 import { paperSend } from "@/lib/desk-ops";
@@ -92,7 +92,7 @@ function Command() {
 
         <section className="grid gap-3 lg:grid-cols-[1fr_240px]">
           <div className="grid gap-3">
-            <PromotionChip meta={paper.data?.meta} />
+            <PromotionStrip meta={paper.data?.meta} />
             <PaperOrb compact />
           </div>
           <div className="hidden justify-center lg:flex">

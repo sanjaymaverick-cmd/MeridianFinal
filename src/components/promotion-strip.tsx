@@ -1,6 +1,21 @@
 import { useState } from "react";
 import { promotionVerdict, type PromotionMeta } from "@/lib/meridian/operator-copy";
 
+function GateList({ gates }: { gates: { label: string; pass: boolean; detail: string }[] }) {
+  return (
+    <ul className="mt-2 flex flex-wrap gap-2">
+      {gates.map((g) => (
+        <li
+          key={g.label}
+          className={`rounded-full border px-3 py-1 text-xs ${g.pass ? "border-up/40 text-up" : "border-down/40 text-down"}`}
+        >
+          {g.label}: {g.detail}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function PromotionChip({ meta }: { meta: PromotionMeta | null | undefined }) {
   const v = promotionVerdict(meta);
   const [open, setOpen] = useState(false);
@@ -20,23 +35,32 @@ export function PromotionChip({ meta }: { meta: PromotionMeta | null | undefined
         <div className="border-t border-border px-3 py-3">
           <p className="text-sm font-medium">{v.title}</p>
           <p className="mt-1 text-sm text-muted">{v.body}</p>
-          <p className="mt-1 text-sm">{v.next}</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {v.gates.map((g) => (
-              <li
-                key={g.label}
-                className={`rounded-full border px-3 py-1 text-xs ${g.pass ? "border-up/40 text-up" : "border-down/40 text-down"}`}
-              >
-                {g.label}: {g.detail}
-              </li>
-            ))}
-          </ul>
+          <p className="mt-1 text-sm text-muted">{v.holds}</p>
+          <p className="mt-1 text-sm">Next: {v.next}</p>
+          <GateList gates={v.gates} />
         </div>
       )}
     </div>
   );
 }
 
+/** Always-open verdict for Command `/` and Auto `/auto`. */
 export function PromotionStrip({ meta }: { meta: PromotionMeta | null | undefined }) {
-  return <PromotionChip meta={meta} />;
+  const v = promotionVerdict(meta);
+  return (
+    <section
+      data-promotion-strip
+      className={`rounded-[12px] border ${v.ready ? "border-up/40" : "border-warn/50"} bg-surface px-3 py-3`}
+    >
+      <p className="text-sm font-medium">{v.title}</p>
+      <p className="mt-1 text-sm text-muted">{v.body}</p>
+      <p className="mt-1 text-sm text-muted" data-promotion-holds>
+        {v.holds}
+      </p>
+      <p className="mt-1 text-sm" data-promotion-next>
+        Next: {v.next}
+      </p>
+      <GateList gates={v.gates} />
+    </section>
+  );
 }

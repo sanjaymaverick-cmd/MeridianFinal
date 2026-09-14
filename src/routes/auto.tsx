@@ -9,7 +9,7 @@ import { useDesk } from "@/lib/desk-store";
 import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
-import { PromotionChip } from "@/components/promotion-strip";
+import { PromotionStrip } from "@/components/promotion-strip";
 import { explainReason, MODE_CHIPS } from "@/lib/meridian/operator-copy";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
@@ -87,7 +87,7 @@ function AutoPage() {
           </p>
         </div>
 
-        <PromotionChip meta={paper.data?.meta} />
+        <PromotionStrip meta={paper.data?.meta} />
 
         <div className="flex flex-wrap gap-2">
           {MODE_CHIPS.map((m) => (
