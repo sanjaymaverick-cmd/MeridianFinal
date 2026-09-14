@@ -129,18 +129,18 @@ export function explainScalp(
     downNote =
       "Price went down. Extra short direction — the model reviews buying futures at the lower price. Same helpful loop.";
     suggestion = needs
-      ? `Model suggestion: review a futures clip of ${futuresNow >= 0 ? "+" : ""}${futuresNow.toFixed(1)} lots to flatten leftover direction (review only). Gamma scalping is helping.`
-      : "Model suggestion: no futures clip yet — leftover direction is still inside the band. Keep watching.";
+      ? `Model suggestion: review a futures clip of ${futuresNow >= 0 ? "+" : ""}${futuresNow.toFixed(1)} lots to flatten leftover direction — review only (not an order). Gamma scalping is helping.`
+      : "Model suggestion: no futures clip yet — leftover direction is still inside the band. Keep watching. (not an order).";
   } else if (snap.gammaSign === "short") {
     postureWords = "Short gamma — a move can hurt";
     upNote = "Price went up. Short gamma pushed you the wrong way — buying futures at a higher price costs money.";
     downNote = "Price went down. Short gamma pushed you the wrong way — selling futures at a lower price costs money.";
-    suggestion = `Model suggestion: this is not a harvest. Review cutting the short-gamma option, or accept that a ${(snap.movePct * 100).toFixed(1)}% jump can cost about ₹${Math.round(scalp).toLocaleString("en-IN")}. Not an order.`;
+    suggestion = `Model suggestion: this is not a harvest. Review cutting the short-gamma option, or accept that a ${(snap.movePct * 100).toFixed(1)}% jump can cost about ₹${Math.round(scalp).toLocaleString("en-IN")}. (not an order).`;
   } else {
     postureWords = "Gamma is flat — there is no scalp story";
     upNote = "A small up-move barely changes leftover direction.";
     downNote = "A small down-move barely changes leftover direction.";
-    suggestion = "Model suggestion: nothing to scalp. Review only if leftover delta is large.";
+    suggestion = "Model suggestion: nothing to scalp. Review only if leftover delta is large. (not an order).";
   }
 
   const deltaUp = startDelta + snap.gamma * up;

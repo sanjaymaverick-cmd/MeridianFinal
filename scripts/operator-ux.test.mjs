@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -233,3 +234,113 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+test("IMP-13 Advice + Greeks: (not an order); hedge row is a review", () => {
+  const copyPath = join(root, "../src/lib/meridian/operator-copy.ts");
+  const copyBody = readFileSync(copyPath, "utf8")
+    .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+    .replace(/export \{ explainReason \} from "\.\/reasons";\s*/, "");
+  const reasonsBody = readFileSync(join(root, "../src/lib/meridian/reasons.ts"), "utf8");
+  const adviceHref = pathToFileURL(join(root, "../src/lib/meridian/advice.ts")).href;
+  const greeksHref = pathToFileURL(join(root, "../src/lib/meridian/greeks.ts")).href;
+  const scoringHref = pathToFileURL(join(root, "../src/lib/meridian/scoring.ts")).href;
+
+  // Helpers alone (no deep advice import graph)
+  const helperSrc = reasonsBody + "\n" + copyBody + `
+    if (NOT_AN_ORDER !== "(not an order)") throw new Error("const " + NOT_AN_ORDER);
+    if (endWithNotAnOrder("Cut beta.") !== "Cut beta. (not an order)") throw new Error(endWithNotAnOrder("Cut beta."));
+    if (endWithNotAnOrder("Cut beta. Not an order.") !== "Cut beta. (not an order)") throw new Error("idempotent Not");
+    if (endWithNotAnOrder("Cut beta. (not an order)") !== "Cut beta. (not an order)") throw new Error("idempotent paren");
+    if (hedgeReviewLots(-1) !== "review hedge -1.0") throw new Error(hedgeReviewLots(-1));
+    if (hedgeReviewLots(0) !== "review hedge 0.0") throw new Error(hedgeReviewLots(0));
+    if (!/^review hedge /.test(hedgeReviewLots(1.5))) throw new Error("prefix");
+  `;
+  const dir = mkdtempSync(join(tmpdir(), "imp13-"));
+  const helperFile = join(dir, "helpers.ts");
+  writeFileSync(helperFile, helperSrc);
+  const hr = spawnSync(process.execPath, ["--experimental-strip-types", helperFile], { encoding: "utf8" });
+  assert.equal(hr.status, 0, hr.stderr || hr.stdout);
+
+  // buildAdvice + greeks via rewritten local copies that point at absolute hrefs
+  const adviceBody = readFileSync(join(root, "../src/lib/meridian/advice.ts"), "utf8")
+    .replace('from "./scoring"', `from ${JSON.stringify(scoringHref)}`)
+    .replace('from "./operator-copy"', `from ${JSON.stringify(pathToFileURL(helperFile).href)}`);
+  // helperFile already has reasons+copy exports at top level — but advice imports named exports.
+  // Write a proper module wrapper instead:
+  const copyMod = join(dir, "operator-copy.ts");
+  writeFileSync(
+    copyMod,
+    readFileSync(copyPath, "utf8")
+      .replace('from "./kelly"', `from ${JSON.stringify(kelly)}`)
+      .replace('from "./reasons"', `from ${JSON.stringify(reasons)}`),
+  );
+  const adviceMod = join(dir, "advice.ts");
+  writeFileSync(
+    adviceMod,
+    readFileSync(join(root, "../src/lib/meridian/advice.ts"), "utf8")
+      .replace('from "./scoring"', `from ${JSON.stringify(scoringHref)}`)
+      .replace('from "./operator-copy"', `from ${JSON.stringify(pathToFileURL(copyMod).href)}`),
+  );
+  const greeksBody = readFileSync(join(root, "../src/lib/meridian/greeks.ts"), "utf8");
+  const greeksMod = join(dir, "greeks.ts");
+  writeFileSync(greeksMod, greeksBody);
+
+  const runtime = `
+    import { NOT_AN_ORDER, endWithNotAnOrder, hedgeReviewLots } from ${JSON.stringify(pathToFileURL(copyMod).href)};
+    import { buildAdvice } from ${JSON.stringify(pathToFileURL(adviceMod).href)};
+    import { DEMO_NIFTY_LEGS, snapshotFromLegs, explainScalp } from ${JSON.stringify(pathToFileURL(greeksMod).href)};
+
+    if (NOT_AN_ORDER !== "(not an order)") throw new Error(NOT_AN_ORDER);
+    const cards = buildAdvice({
+      nifty: 24000, niftyChg: 0, bankNifty: 50000, bankChg: 0, indiaVix: 12, pcr: 1,
+      btc: 70000, btcChg: 0, gold: 70000, goldChg: 0, usdinr: 84, usdinrChg: 0,
+      crude: 70, crudeChg: 0, regime: "Calm", session: "weekend", asOf: Date.now(), source: "test",
+    }, { promoted: false });
+    if (!cards.length) throw new Error("no cards");
+    for (const c of cards) {
+      if (!c.body.endsWith("(not an order)")) throw new Error(c.id + ": " + c.body);
+    }
+    const snap = snapshotFromLegs("NIFTY", DEMO_NIFTY_LEGS.map((l) => ({ ...l, markInr: 24252 })), 0.01);
+    const report = explainScalp(snap, { rehedgeBandLots: 0.5, startHedged: true });
+    for (const st of report.steps) {
+      if (!hedgeReviewLots(st.hedgeLots).startsWith("review hedge ")) throw new Error("row");
+    }
+    if (report.needsRehedge && !/review/i.test(report.suggestion)) throw new Error(report.suggestion);
+    if (!/\\(not an order\\)/.test(report.suggestion) && report.posture === "short") throw new Error("short: " + report.suggestion);
+  `;
+  const runtimeFile = join(dir, "runtime.mjs");
+  // Use strip-types on a .ts file
+  const runtimeTs = join(dir, "runtime.ts");
+  writeFileSync(runtimeTs, runtime);
+  const rr = spawnSync(process.execPath, ["--experimental-strip-types", runtimeTs], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(rr.status, 0, rr.stderr || rr.stdout);
+
+  const adviceSrc = readFileSync(join(root, "../src/lib/meridian/advice.ts"), "utf8");
+  assert.match(adviceSrc, /endWithNotAnOrder/);
+  assert.doesNotMatch(adviceSrc, /Not an order\./);
+
+  const cmd = readFileSync(join(root, "../src/routes/index.tsx"), "utf8");
+  assert.match(cmd, /data-advice-panel/);
+  assert.match(cmd, /data-advice-card/);
+  assert.match(cmd, /data-not-an-order/);
+  assert.match(cmd, /NOT_AN_ORDER/);
+  const advicePanel = cmd.slice(cmd.indexOf("data-advice-panel"), cmd.indexOf("Imported book"));
+  assert.match(advicePanel, /\{NOT_AN_ORDER\}/);
+
+  const greeksPage = readFileSync(join(root, "../src/routes/greeks.tsx"), "utf8");
+  assert.match(greeksPage, /data-hedge-review/);
+  assert.match(greeksPage, /hedgeReviewLots\(st\.hedgeLots\)/);
+  assert.match(greeksPage, /Hedge review \{NOT_AN_ORDER\}/);
+  assert.doesNotMatch(greeksPage, /· hedge \{st\.hedgeLots/);
+
+  const greeksLib = readFileSync(join(root, "../src/lib/meridian/greeks.ts"), "utf8");
+  assert.match(greeksLib, /\(not an order\)/);
+  assert.doesNotMatch(greeksLib, /Not an order\./);
+
+  const copy = readFileSync(copyPath, "utf8");
+  assert.match(copy, /export const NOT_AN_ORDER = "\(not an order\)"/);
+  assert.match(copy, /export function hedgeReviewLots/);
+  assert.match(copy, /export function endWithNotAnOrder/);
+});
+

@@ -1,6 +1,20 @@
 import { PROMOTE_MIN_AUC, PROMOTE_MIN_HIT, PROMOTE_MIN_N } from "./kelly";
 export { explainReason } from "./reasons";
 
+/** Constitution Part 0.2 §12 — Advice and Greeks reviews stay this exact phrase. */
+export const NOT_AN_ORDER = "(not an order)";
+
+/** Idempotent: strip prior disclaimer, append parenthetical “(not an order)”. */
+export function endWithNotAnOrder(body: string): string {
+  const bare = body.replace(/\s*(\(\s*not an order\s*\)|Not an order)\.?\s*$/i, "").trimEnd();
+  return `${bare} ${NOT_AN_ORDER}`;
+}
+
+/** Rehedge path row — hedge clip is a review, not an order. */
+export function hedgeReviewLots(hedgeLots: number): string {
+  return `review hedge ${hedgeLots.toFixed(1)}`;
+}
+
 export const MODE_CHIPS = [
   { id: "advisory" as const, label: "Signals", hint: "Propose. Do not send." },
   { id: "paper" as const, label: "Paper", hint: "Farm labels. Kite off." },
