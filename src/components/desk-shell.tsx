@@ -3,13 +3,12 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Activity, BookOpen, Compass, LayoutDashboard, LineChart, Sigma } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDesk } from "@/lib/desk-store";
 import { cn, inr, formatPx } from "@/lib/utils";
 import { AutoEngine, setDeskKilled } from "@/components/auto-engine";
 import { QuotesHydrator } from "@/components/quotes-hydrator";
-import { MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import { deskIdentityStrip } from "@/lib/meridian/identity-strip";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { nseCashClosed } from "@/lib/meridian/session-lock";
@@ -52,6 +51,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
   }, 0);
   const heat = (paper.data?.heatFarm ?? heatFarm) + (paper.data?.heatPnl ?? heatPnl);
   const deskState = killed ? "killed" : guest ? "guest" : mode;
+  const identity = deskIdentityStrip({ mode, killed });
 
   function onHalt() {
     if (!canDrive) {
@@ -156,10 +156,25 @@ export function DeskShell({ children }: { children: ReactNode }) {
               );
             })}
           </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <Badge tone={killed ? "down" : mode === "auto" || mode === "paper" ? "warn" : "neutral"}>
-              {killed ? "Halted" : (MODE_CHIPS.find((m) => m.id === mode)?.label ?? mode)}
-            </Badge>
+          <div
+            className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted sm:gap-2 sm:text-[11px]"
+            data-identity-strip
+            aria-label={identity.mock + " " + identity.mode + " " + identity.engine + " " + identity.kite}
+          >
+            <span className="rounded border border-border bg-elevated px-1.5 py-0.5 text-fg">{identity.mock}</span>
+            <span className="rounded border border-border px-1.5 py-0.5 text-fg">{identity.mode}</span>
+            <span
+              className={
+                killed
+                  ? "rounded border border-warn/50 bg-warn/10 px-1.5 py-0.5 text-warn"
+                  : "rounded border border-up/40 bg-up/10 px-1.5 py-0.5 text-up"
+              }
+            >
+              {identity.engine}
+            </span>
+            <span className="rounded border border-border px-1.5 py-0.5">{identity.kite}</span>
+          </div>
+          <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant={killed ? "outline" : "danger"}

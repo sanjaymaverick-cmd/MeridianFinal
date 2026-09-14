@@ -137,7 +137,7 @@ test("auto/paper scan gates match execute: family, stale model, NSE hours", () =
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
-  assert.match(chips, /id: "auto" as const, label: "Auto"/);
+  assert.match(chips, /id: "auto" as const, label: "Auto-send"/);
 });
 
 test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () => {
@@ -235,4 +235,57 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   assert.match(autoPage, /crypto spot only/i);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
+});
+
+
+test("IMP-01 identity strip: MOCK ₹, mode, ENGINE ON|PAUSED, KITE DISARMED", () => {
+  const idPath = pathToFileURL(join(root, "../src/lib/meridian/identity-strip.ts")).href;
+  const src = `
+    import { deskIdentityStrip, deskIdentityStripText } from ${JSON.stringify(idPath)};
+
+    const cases = [
+      { mode: "advisory", killed: true, modeLabel: "Signals", engine: "ENGINE PAUSED" },
+      { mode: "advisory", killed: false, modeLabel: "Signals", engine: "ENGINE ON" },
+      { mode: "paper", killed: false, modeLabel: "Paper", engine: "ENGINE ON" },
+      { mode: "paper", killed: true, modeLabel: "Paper", engine: "ENGINE PAUSED" },
+      { mode: "auto", killed: false, modeLabel: "Auto-send", engine: "ENGINE ON" },
+      { mode: "auto", killed: true, modeLabel: "Auto-send", engine: "ENGINE PAUSED" },
+    ];
+    for (const c of cases) {
+      const s = deskIdentityStrip({ mode: c.mode, killed: c.killed });
+      if (s.mock !== "MOCK ₹") throw new Error("mock " + s.mock);
+      if (!/MOCK/.test(s.mock) || !/₹/.test(s.mock)) throw new Error("mock rupee");
+      if (s.mode !== c.modeLabel) throw new Error("mode " + c.mode + " -> " + s.mode);
+      if (s.engine !== c.engine) throw new Error("engine " + s.engine);
+      if (s.kite !== "KITE DISARMED") throw new Error("kite " + s.kite);
+      if (/\\blive\\b/i.test(s.mode) || s.kite !== "KITE DISARMED") throw new Error("live/armed leak " + JSON.stringify(s));
+      const text = deskIdentityStripText({ mode: c.mode, killed: c.killed });
+      if (!text.includes("MOCK ₹") || !text.includes(c.modeLabel) || !text.includes(c.engine) || !text.includes("KITE DISARMED")) {
+        throw new Error("text " + text);
+      }
+    }
+
+    const live = deskIdentityStrip({ mode: "live", killed: false });
+    if (live.mode === "Live" || /live/i.test(live.mode)) throw new Error("must not show Live: " + live.mode);
+    if (live.kite !== "KITE DISARMED") throw new Error("kite always disarmed");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  assert.match(shell, /deskIdentityStrip/);
+  assert.match(shell, /data-identity-strip/);
+  assert.match(shell, /identity\.mock/);
+  assert.match(shell, /identity\.engine/);
+  assert.match(shell, /identity\.kite/);
+  assert.match(shell, /Resume paper/);
+  assert.doesNotMatch(shell, /\bArm\b/);
+  const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(chips, /id: "auto" as const, label: "Auto-send"/);
+  const idSrc = readFileSync(join(root, "../src/lib/meridian/identity-strip.ts"), "utf8");
+  assert.match(idSrc, /MOCK ₹/);
+  assert.match(idSrc, /Auto-send/);
+  assert.match(idSrc, /KITE DISARMED/);
+  assert.match(idSrc, /ENGINE PAUSED/);
 });
