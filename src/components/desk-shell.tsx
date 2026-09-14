@@ -39,6 +39,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
   const heatFarm = useDesk((s) => s.heatFarm);
   const heatPnl = useDesk((s) => s.heatPnl);
   const [haltAsk, setHaltAsk] = useState(false);
+  const [flattenAsk, setFlattenAsk] = useState(false);
   const [help, setHelp] = useState(false);
   const guest = !isPending && !user;
   const canDrive = !guest;
@@ -71,6 +72,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
       if (e.key === "Escape") {
         setHaltAsk(false);
+        setFlattenAsk(false);
         setHelp(false);
         return;
       }
@@ -86,8 +88,12 @@ export function DeskShell({ children }: { children: ReactNode }) {
       }
       if (e.key === "f" || e.key === "F") {
         e.preventDefault();
-        const sym = focusedOrFirstOpen();
-        if (sym) void paperSend({ type: "flatten", symbol: sym });
+        if (!canDrive) {
+          toast.message("Sign in to flatten the shared book.");
+          return;
+        }
+        if (positions.length === 0) return;
+        setFlattenAsk(true);
       }
       if (e.key === "r" || e.key === "R") {
         e.preventDefault();
@@ -111,7 +117,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [canDrive, killed, guest, navigate]);
+  }, [canDrive, killed, guest, navigate, positions.length]);
 
   const btc = ticks.BTC ?? 0;
   const eth = ticks.ETH ?? 0;
@@ -217,7 +223,13 @@ export function DeskShell({ children }: { children: ReactNode }) {
           </span>
           <span>{positions.length} clips</span>
           {closed && <span className="text-warn">NSE CLOSED</span>}
-          <Button size="sm" variant="ghost" disabled={guest || positions.length === 0} onClick={() => void paperSend({ type: "flatten_all" })}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={guest || positions.length === 0}
+            title={guest ? "Sign in to flatten" : "Flatten all open clips"}
+            onClick={() => setFlattenAsk(true)}
+          >
             Flatten all
           </Button>
           <div className="hidden min-w-[220px] flex-1 md:block">
@@ -226,7 +238,9 @@ export function DeskShell({ children }: { children: ReactNode }) {
         </div>
         {haltAsk && (
           <div className="border-t border-border bg-elevated px-4 py-3 md:px-6">
-            <p className="text-sm">Halt the paper engine? Open clips stay. Stops pause. This is not live Kite.</p>
+            <p className="text-sm">
+              Halt the paper engine? Open clips stay. No new entries — hard stop, time stop, trail, and session exits still run. This is not live Kite.
+            </p>
             <div className="mt-2 flex gap-2">
               <Button
                 size="sm"
@@ -239,6 +253,28 @@ export function DeskShell({ children }: { children: ReactNode }) {
                 Halt paper
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setHaltAsk(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+        {flattenAsk && (
+          <div className="border-t border-border bg-elevated px-4 py-3 md:px-6">
+            <p className="text-sm">
+              Flatten all open paper clips now? This closes risk; it is not Pause. Kite stays off.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  setFlattenAsk(false);
+                  void paperSend({ type: "flatten_all" });
+                }}
+              >
+                Confirm flatten
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setFlattenAsk(false)}>
                 Cancel
               </Button>
             </div>
