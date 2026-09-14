@@ -46,7 +46,7 @@ export const FARM_PROFILE: SleeveProfile = {
   MIN_META_PROB: 0.48,
   MAX_HEAT: 0.5,
   MIN_HOLD_SEC: 120,
-  TIME_STOP_SEC: 900,
+  TIME_STOP_SEC: 900, // farm ~900s today; spec 90s — do not silently change in a label-honesty pass
   MAX_SIZE: 0.03,
   TP_R: 0.55,
   TRAIL_ARM_R: 0.35,

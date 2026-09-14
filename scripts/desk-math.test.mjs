@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -63,6 +64,95 @@ test("costs, kelly, TBM, logistic, BS premiums", () => {
     const otmCall = bsPremium(57800, 57000, 0.12, 2, "CE", 0.065);
     if (!(call > 50 && put > 50)) throw new Error("atm prem " + call + " " + put);
     if (!(otmCall > otmPut)) throw new Error("ITM call should beat OTM put " + otmCall + " " + otmPut);
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+test("paper close samples: net label, fee-adjusted fwdRet, :paper reasons, no promote at n=568", () => {
+  const sampleSrc = readFileSync(join(root, "../src/lib/meridian/paper-sample.ts"), "utf8");
+  assert.match(sampleSrc, /label: y/);
+  assert.match(sampleSrc, /label_barrier: tb\.label/);
+  assert.match(sampleSrc, /economicLabel\(fwdRet\)/);
+  assert.match(sampleSrc, /netFwdRet\(args\.entryFill, args\.exitFill, args\.side\)/);
+  assert.match(sampleSrc, /netPnlUsd/);
+  assert.match(sampleSrc, /paperReason\(\[args\.sleeve, args\.reasonClose, args\.side\]\)/);
+
+  const src = `
+    import { fillFromMid, netFwdRet, netPnlUsd, economicLabel, roundTripBps } from ${JSON.stringify(files.costs)};
+    import { shouldPromote } from ${JSON.stringify(files.kelly)};
+    import { barrierFromExit } from ${JSON.stringify(files.tbm)};
+
+    function paperReason(parts) {
+      const body = parts.map((p) => String(p ?? "").trim()).filter(Boolean).join(":");
+      const tagged = body.replace(/:live\\b/g, ":paper");
+      if (!tagged) return "paper";
+      return tagged.endsWith(":paper") ? tagged : tagged + ":paper";
+    }
+
+    const cls = "crypto";
+    const costBps = roundTripBps(cls);
+    const entryMid = 100;
+    const exitMid = 100.05;
+    const entryFill = fillFromMid(entryMid, "buy", cls);
+    const exitFill = fillFromMid(exitMid, "sell", cls);
+    const fwdRet = netFwdRet(entryFill, exitFill, "long");
+    const fwdRetGross = exitMid / entryMid - 1;
+    const pnl = netPnlUsd(entryFill, exitFill, 1, "long");
+    const tb = barrierFromExit("trail", fwdRetGross);
+    const trail = {
+      fwdRet,
+      fwdRetGross,
+      pnl,
+      pnl_usd: pnl,
+      label: economicLabel(fwdRet),
+      y: economicLabel(fwdRet),
+      label_barrier: tb.label,
+      reasonClose: "trail",
+      reasonCloseFull: paperReason(["farm", "trail", "long"]),
+      reasonOpenFull: paperReason(["farm", "passed_gates", "long"]),
+      costBps,
+    };
+    if (trail.fwdRetGross <= 0) throw new Error("trail gross should be + " + trail.fwdRetGross);
+    if (!(trail.fwdRet < 0)) throw new Error("trail net fwd should be <= 0 after fees " + trail.fwdRet);
+    const bpsTaken = (trail.fwdRetGross - trail.fwdRet) * 1e4;
+    if (Math.abs(bpsTaken - costBps) > 0.5) throw new Error("fwdRet not net of roundTripBps " + bpsTaken + " vs " + costBps);
+    if (trail.label !== 0 || trail.y !== 0) throw new Error("losing trail must label 0 got " + trail.label);
+    if (trail.label_barrier !== 1) throw new Error("barrier path for trail stays 1 " + trail.label_barrier);
+    if (!(trail.pnl < 0) || trail.pnl !== trail.pnl_usd) throw new Error("pnl must be net usd " + trail.pnl);
+
+    const flatExit = fillFromMid(entryMid, "sell", cls);
+    const timeFwd = netFwdRet(entryFill, flatExit, "long");
+    const timeStop = {
+      label: economicLabel(timeFwd),
+      fwdRet: timeFwd,
+      reasonClose: "time_stop",
+      reasonCloseFull: paperReason(["farm", "time_stop", "long"]),
+      reasonOpenFull: paperReason(["farm", "passed_gates", "long"]),
+      pnl: netPnlUsd(entryFill, flatExit, 2, "long"),
+      costBps,
+    };
+    if (timeStop.label !== 0) throw new Error("losing time_stop label " + timeStop.label);
+    if (!(timeStop.fwdRet < 0)) throw new Error("time_stop fwdRet should be net negative " + timeStop.fwdRet);
+    if (timeStop.reasonClose !== "time_stop") throw new Error("short reasonClose " + timeStop.reasonClose);
+    if (!timeStop.reasonCloseFull.includes(":paper") || timeStop.reasonCloseFull.includes(":live")) {
+      throw new Error("reasonCloseFull " + timeStop.reasonCloseFull);
+    }
+    if (!timeStop.reasonOpenFull.includes(":paper") || timeStop.reasonOpenFull.includes(":live")) {
+      throw new Error("reasonOpenFull " + timeStop.reasonOpenFull);
+    }
+
+    const open = paperReason(["farm", "passed_gates", "long"]);
+    const flat = paperReason(["flatten_operator", "long"]);
+    if (!open.endsWith(":paper") || open.includes(":live")) throw new Error("open reason " + open);
+    if (!flat.includes("flatten_operator") || !flat.endsWith(":paper") || flat.includes(":live")) {
+      throw new Error("flatten reason " + flat);
+    }
+
+    if (shouldPromote(568, 0.9, "paper", 0.368)) throw new Error("n=568 hit=0.368 must not promote");
+    if (shouldPromote(568, 0.9, "paper")) throw new Error("n=568 missing hitRate must not promote");
   `;
   const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
     encoding: "utf8",

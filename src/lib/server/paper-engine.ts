@@ -20,7 +20,8 @@ import {
   type SleeveProfile,
 } from "@/lib/meridian/decision";
 import { getArtefact, predictMetaProb } from "@/lib/meridian/artefact";
-import { costClassOf, fillFromMid, netFwdRet, roundTripBps, type CostClass } from "@/lib/meridian/costs";
+import { costClassOf, economicLabel, fillFromMid, netFwdRet, netPnlUsd, roundTripBps, type CostClass } from "@/lib/meridian/costs";
+import { closeClipFields, paperReason } from "@/lib/meridian/paper-sample";
 import {
   confluenceFromParts,
   emptyFeatures,
@@ -31,7 +32,6 @@ import {
   type FeatureVec,
   type TapeStat,
 } from "@/lib/meridian/features";
-import { barrierFromExit, tripleBarrier } from "@/lib/meridian/triple-barrier";
 import { loadArtefactFromDisk, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
 import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
@@ -336,7 +336,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -392,8 +392,7 @@ function qtyFor(sym: string, px: number, sizePct: number, ticks: Record<string, 
 }
 
 function pnlOf(pos: Position, px: number) {
-  const dir = pos.side === "short" ? -1 : 1;
-  return (px - pos.entryPrice) * pos.qty * dir;
+  return netPnlUsd(pos.entryPrice, px, pos.qty, pos.side);
 }
 
 async function persistFill(f: Fill, metaProb: number, pnl: number | null) {
@@ -410,6 +409,24 @@ async function persistFill(f: Fill, metaProb: number, pnl: number | null) {
 
 async function persistSample(row: Record<string, unknown>) {
   try {
+    const fwd = Number(row.fwdRet ?? row.fwd_ret);
+    if (Number.isFinite(fwd)) {
+      if (row.label_barrier == null && (row.label === 0 || row.label === 1)) {
+        row.label_barrier = row.label;
+      }
+      const y = economicLabel(fwd);
+      row.fwdRet = fwd;
+      row.fwd_ret = fwd;
+      row.label = y;
+      row.y = y;
+    }
+    if (row.pnl_usd == null && row.pnl != null) row.pnl_usd = row.pnl;
+    if (!row.reasonCloseFull && row.reasonClose) {
+      row.reasonCloseFull = paperReason([row.sleeve as string, String(row.reasonClose), row.side as string]);
+    }
+    if (!row.reasonOpenFull && row.reasonOpen) {
+      row.reasonOpenFull = paperReason([row.sleeve as string, String(row.reasonOpen), row.side as string]);
+    }
     const id = String(row.id ?? "");
     g.__paperSampleIds__ ??= new Set();
     if (id && g.__paperSampleIds__.has(id)) return;
@@ -669,7 +686,31 @@ async function tickUnlocked() {
       const cls = clsFor(pos.symbol, eng);
       const closeSide = pos.side === "short" ? "BUY" : "SELL";
       const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
-      const pnl = pnlOf(pos, px);
+      const entryMid = pos.entryMid && pos.entryMid > 0 ? pos.entryMid : pos.entryPrice;
+      const timedOut =
+        intent.reason === "time_stop" ||
+        intent.reason === "eod_flatten" ||
+        intent.reason === "nse_session_closed" ||
+        intent.reason === "stale_model" ||
+        intent.reason === "family_net";
+      const clip = closeClipFields({
+        side: pos.side,
+        qty: pos.qty,
+        entryFill: pos.entryPrice,
+        exitFill: px,
+        entryMid,
+        exitMid: mid,
+        costBps: pos.costBps ?? roundTripBps(cls),
+        sleeve: pos.sleeve ?? "farm",
+        reasonOpen: pos.reasonOpen,
+        reasonClose: intent.reason,
+        highSinceEntry: pos.highSinceEntry,
+        lowSinceEntry: pos.lowSinceEntry || mid,
+        stopPct: pos.stopPct,
+        tpR: prof.TP_R,
+        timedOut,
+      });
+      const pnl = clip.pnl;
       const label = quoteLabelOf(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]);
       const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
       const fill: Fill = {
@@ -688,22 +729,6 @@ async function tickUnlocked() {
       eng.dailyPnl += pnl;
       eng.cooldownUntil[pos.symbol] = now + prof.COOLDOWN_SEC * 1000;
       const holdSec = (now - pos.entryTs) / 1000;
-      const entryMid = pos.entryMid && pos.entryMid > 0 ? pos.entryMid : pos.entryPrice;
-      const fwdRetNet = netFwdRet(pos.entryPrice, px, pos.side);
-      const fwdRetGross = pos.side === "short" ? entryMid / mid - 1 : mid / entryMid - 1;
-      const timedOut = intent.reason === "time_stop" || intent.reason === "eod_flatten" || intent.reason === "nse_session_closed" || intent.reason === "stale_model" || intent.reason === "family_net";
-      const tb =
-        barrierFromExit(intent.reason, fwdRetGross) ??
-        tripleBarrier({
-          side: pos.side,
-          entry: entryMid,
-          high: pos.highSinceEntry,
-          low: pos.lowSinceEntry || mid,
-          stopPct: pos.stopPct,
-          tpR: prof.TP_R,
-          timedOut,
-          netRet: fwdRetGross,
-        });
       eng.samples += 1;
       await persistFill(fill, pos.metaProb, pnl);
       await persistSample({
@@ -717,22 +742,15 @@ async function tickUnlocked() {
         qty: pos.qty,
         entry: pos.entryPrice,
         exit: px,
-        pnl,
+        ...clip,
         holdSec,
-        fwdRet: fwdRetNet,
-        fwdRetGross,
-        reasonOpen: pos.reasonOpen,
-        reasonClose: intent.reason,
         metaProb: pos.metaProb,
         confidence: pos.confidence,
         confluence: pos.confluence,
         pSuccess: pos.pSuccess,
         atrPct: pos.atrPct,
         score: pos.score,
-        label: tb.label,
-        barrier: tb.barrier,
         sleeve: pos.sleeve ?? "farm",
-        costBps: pos.costBps ?? roundTripBps(cls),
         expiry: extra.expiry,
         strike: extra.strike,
         right: extra.right,
@@ -1370,7 +1388,25 @@ function flattenNow(e: Engine, symbol: string, now: number) {
     const closeSide = pos.side === "short" ? "BUY" : "SELL";
     const cls = clsFor(pos.symbol, e);
     const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
-    const pnl = pnlOf(pos, px);
+    const entryMid = pos.entryMid && pos.entryMid > 0 ? pos.entryMid : pos.entryPrice;
+    const clip = closeClipFields({
+      side: pos.side,
+      qty: pos.qty,
+      entryFill: pos.entryPrice,
+      exitFill: px,
+      entryMid,
+      exitMid: mid,
+      costBps: pos.costBps ?? roundTripBps(cls),
+      sleeve: pos.sleeve ?? "farm",
+      reasonOpen: pos.reasonOpen,
+      reasonClose: "flatten_operator",
+      highSinceEntry: pos.highSinceEntry,
+      lowSinceEntry: pos.lowSinceEntry || mid,
+      stopPct: pos.stopPct,
+      tpR: profileOf(pos.sleeve ?? "farm").TP_R,
+      timedOut: true,
+    });
+    const pnl = clip.pnl;
     const extra = foFields(pos.symbol, e.foMeta[pos.symbol]);
     const label = quoteLabelOf(e.liveFeed[pos.symbol], e.delayed[pos.symbol]);
     const fill: Fill = {
@@ -1388,7 +1424,35 @@ function flattenNow(e: Engine, symbol: string, now: number) {
     e.fills = [fill, ...e.fills].slice(0, 400);
     e.dailyPnl += pnl;
     e.cooldownUntil[pos.symbol] = now + 90_000;
+    e.samples += 1;
     void persistFill(fill, pos.metaProb, pnl);
+    void persistSample({
+      id: fill.id,
+      tsOpen: pos.entryTs,
+      tsClose: now,
+      opened_ist: formatIstStamp(pos.entryTs),
+      closed_ist: formatIstStamp(now),
+      symbol: pos.symbol,
+      side: pos.side,
+      qty: pos.qty,
+      entry: pos.entryPrice,
+      exit: px,
+      ...clip,
+      holdSec: (now - pos.entryTs) / 1000,
+      metaProb: pos.metaProb,
+      confidence: pos.confidence,
+      confluence: pos.confluence,
+      pSuccess: pos.pSuccess,
+      atrPct: pos.atrPct,
+      score: pos.score,
+      sleeve: pos.sleeve ?? "farm",
+      expiry: extra.expiry,
+      strike: extra.strike,
+      right: extra.right,
+      quoteLabel: label,
+      features: pos.features,
+      farmBucket: pos.farmBucket ?? farmBucket(pos.symbol),
+    });
   }
   e.positions = keep;
 }
@@ -1473,10 +1537,17 @@ export type FitSampleRow = {
   hold_sec: number;
   fwd_ret?: number;
   reason_close: string;
+  reasonCloseFull?: string;
   quality_hold: boolean;
   contaminated: boolean;
   set: "fit-jsonl";
   pnl?: number;
+  pnl_usd?: number;
+  label?: number;
+  y?: number;
+  label_barrier?: number;
+  barrier?: string;
+  costBps?: number;
   farm_bucket?: "core" | "tail" | "other";
 };
 
@@ -1516,24 +1587,41 @@ export async function listFitSamples(limit = 4000): Promise<FitSampleRow[]> {
         fwdRet?: number;
         reason_close?: string;
         reasonClose?: string;
+        reasonCloseFull?: string;
         reasonOpen?: string;
         reason_open?: string;
         sleeve?: string;
         pnl?: number;
+        pnl_usd?: number;
+        label?: number;
+        y?: number;
+        label_barrier?: number;
+        barrier?: string;
+        costBps?: number;
       };
       if (r.sleeve === PRED_SLEEVE || isPredSymbol(String(r.symbol ?? ""))) continue;
       const hold = Number(r.hold_sec ?? r.holdSec ?? 0);
       const reason = String(r.reason_close ?? r.reasonClose ?? "");
+      const fwd = Number(r.fwd_ret ?? r.fwdRet ?? 0);
+      const pnl = Number(r.pnl_usd ?? r.pnl ?? 0);
+      const y = r.label === 0 || r.label === 1 ? r.label : r.y === 0 || r.y === 1 ? r.y : fwd > 0 ? 1 : 0;
       rows.push({
         symbol: r.symbol,
         side: r.side,
         hold_sec: hold,
-        fwd_ret: Number(r.fwd_ret ?? r.fwdRet ?? 0),
+        fwd_ret: fwd,
         reason_close: reason,
+        reasonCloseFull: r.reasonCloseFull,
         quality_hold: hold >= 300,
         contaminated: reason.includes("time_stop") || hold < 120,
         set: "fit-jsonl",
-        pnl: Number(r.pnl ?? 0),
+        pnl,
+        pnl_usd: pnl,
+        label: y,
+        y,
+        label_barrier: r.label_barrier,
+        barrier: r.barrier,
+        costBps: r.costBps,
       });
     } catch {
       /* skip */

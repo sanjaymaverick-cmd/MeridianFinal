@@ -47,3 +47,15 @@ export function netFwdRet(entryFill: number, exitFill: number, side: "long" | "s
   if (!(entryFill > 0) || !(exitFill > 0)) return 0;
   return side === "short" ? entryFill / exitFill - 1 : exitFill / entryFill - 1;
 }
+
+/** Dollar PnL from fill prices (spread+fee already in the fills). */
+export function netPnlUsd(entryFill: number, exitFill: number, qty: number, side: "long" | "short"): number {
+  if (!Number.isFinite(entryFill) || !Number.isFinite(exitFill) || !Number.isFinite(qty)) return 0;
+  const dir = side === "short" ? -1 : 1;
+  return (exitFill - entryFill) * qty * dir;
+}
+
+/** Retrain y: 1 iff net forward return after fees > 0. Barrier path is not this. */
+export function economicLabel(fwdRetNet: number): 0 | 1 {
+  return Number(fwdRetNet) > 0 ? 1 : 0;
+}

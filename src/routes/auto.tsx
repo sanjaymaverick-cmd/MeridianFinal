@@ -42,7 +42,22 @@ function AutoPage() {
   async function downloadSamples() {
     const rows = await getPaperSamples();
     const cols = [
-      "symbol", "side", "hold_sec", "fwd_ret", "reason_close", "quality_hold", "contaminated", "set", "pnl",
+      "symbol",
+      "side",
+      "hold_sec",
+      "fwd_ret",
+      "pnl",
+      "pnl_usd",
+      "label",
+      "y",
+      "label_barrier",
+      "barrier",
+      "costBps",
+      "reason_close",
+      "reasonCloseFull",
+      "quality_hold",
+      "contaminated",
+      "set",
     ];
     const esc = (v: unknown) => {
       const s = v == null ? "" : String(v);

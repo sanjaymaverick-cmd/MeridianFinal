@@ -1,6 +1,6 @@
 # Meridian Final — Build Master Spec
 
-**Last updated:** 13 Sep 2026  
+**Last updated:** 14 Sep 2026  
 **Repos:** [sanjaymaverick-cmd/MeridianFinal](https://github.com/sanjaymaverick-cmd/MeridianFinal)  
 **Lineage:** V1 advisor → V2 Greeks → V3 auto desk → V4 OpenAlgo / meta-label  
 **Isolation:** V3 and V4 stay frozen. Final copies math, never patches those trees.
@@ -25,8 +25,8 @@ Premium **Kite Connect** is the intended live broker. This app is the intelligen
 | Area | Choice |
 |------|--------|
 | Markets | India cash + F&O first. Crypto/Delta later, same as V4. |
-| Meta-label | Synth scaffold until paper fills fit a logistic. Promote PnL only if n≥2000, test AUC≥0.55, and test hit>52%. Do not promote on synth-only AUC. |
-| Holds | Farm: 90s vertical barrier for labels. PnL: no time-stop — hard stop, 2.2R, trail. Python `meridian_final/` is a frozen port. |
+| Meta-label | Synth scaffold until paper fills fit a logistic. Promote PnL only if n≥2000, test AUC≥0.55, and test hit>52%. Do not promote on synth-only AUC. Sample `label` / `y` is 1 iff net forward return after fees > 0; barrier path is `barrier` / `label_barrier`, not the training label. |
+| Holds | Farm: 90s vertical barrier for labels in the spec; the TS desk farm time-stop is 900s (do not silently change in a label-honesty pass). PnL: no time-stop — hard stop, 2.2R, trail. Python `meridian_final/` is a frozen port. |
 | Greeks | Daily PnL = theta. Gamma scalp = ½ Γ (ΔS)². Long gamma harvests; short gamma hurts. |
 | Execution | Paper in the desk. Kite live only after static IP + `LIVE_OK`. |
 | Capital | Shared paper book **₹10,00,000**. Farm: max 16 small clips. PnL: max 4, quarter-Kelly, only when meta is promoted. Live cap stays smaller (V4 `LIVE_BUDGET` 25k) when armed. |

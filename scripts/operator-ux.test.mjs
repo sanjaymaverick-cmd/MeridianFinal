@@ -153,6 +153,9 @@ test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () 
   assert.match(engine, /\$\{sleeve\}:\$\{reason\}:paper/);
   assert.match(engine, /\$\{intent\.reason\}:\$\{pos\.side\}:paper/);
   assert.match(engine, /\$\{sleeve\}:\$\{pos\.reasonOpen\}:paper/);
+  assert.match(engine, /closeClipFields/);
+  assert.match(engine, /economicLabel/);
+  assert.match(engine, /reasonCloseFull/);
   assert.doesNotMatch(engine, /:live`/);
   assert.match(shell, /Resume paper/);
   assert.doesNotMatch(shell, /\bArm\b/);
