@@ -3,9 +3,44 @@ export { explainReason } from "./reasons";
 
 export const MODE_CHIPS = [
   { id: "advisory" as const, label: "Signals", hint: "Propose. Do not send." },
-  { id: "paper" as const, label: "Paper", hint: "Farm labels. Kite off." },
+  { id: "paper" as const, label: "Paper", hint: "Approve / Skip / Size. 15s auto-skip. Kite off." },
   { id: "auto" as const, label: "Auto", hint: "Crypto spot farm. Paper only. Kite off." },
 ];
+
+/** Paper Action Center: proposal expires unless Approve / Skip. */
+export const PAPER_AUTO_SKIP_SEC = 15;
+
+export function suggestedQty(px: number, sizePct: number, budget = 1_000_000): number {
+  if (!(px > 0) || !(sizePct > 0)) return 0;
+  return Math.max(1, Math.floor((budget * sizePct) / px));
+}
+
+export function sizeLadder(baseQty: number): { mult: number; label: string; qty: number }[] {
+  const base = Math.max(0, Math.floor(baseQty));
+  return [
+    { mult: 0.5, label: "½", qty: Math.max(1, Math.floor(base * 0.5) || 1) },
+    { mult: 1, label: "1×", qty: Math.max(1, base || 1) },
+    { mult: 1.5, label: "1½", qty: Math.max(1, Math.floor(base * 1.5) || 1) },
+  ];
+}
+
+export function autoSkipLabel(secondsLeft: number): string {
+  const s = Math.max(0, Math.ceil(secondsLeft));
+  return `Auto-skip ${s}s`;
+}
+
+export function actionCenterBlurb(mode: "advisory" | "paper" | "auto", killed: boolean): string {
+  if (killed) {
+    return "No new clips. Open risk still here — hard stop, time stop, trail, and session exits still run. Resume paper from Halt.";
+  }
+  if (mode === "advisory") {
+    return "Approve opens a paper clip. Skip cools the name for 15 minutes. Size picks ½ / 1× / 1½. Stops still run. Cash/F&O/MCX stay propose-only.";
+  }
+  if (mode === "paper") {
+    return "Paper waits for Approve / Skip / Size. 15s auto-skip is labelled on each proposal. Flatten one per open clip. Kite stays off.";
+  }
+  return "Auto is sending crypto spot only. Skip a name or flatten one open clip. Cash, F&O, MCX do not fill.";
+}
 
 export type PromotionMeta = {
   n: number;

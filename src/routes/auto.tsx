@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DeskShell } from "@/components/desk-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,16 @@ import { inr, formatIstStamp } from "@/lib/utils";
 import { PAPER_BUDGET, FARM_PROFILE, PNL_PROFILE } from "@/lib/meridian/decision";
 import { getPaperBook, getPaperSamples } from "@/lib/server/desk";
 import { PromotionChip } from "@/components/promotion-strip";
-import { explainReason, MODE_CHIPS } from "@/lib/meridian/operator-copy";
+import {
+  actionCenterBlurb,
+  autoSkipLabel,
+  explainReason,
+  MODE_CHIPS,
+  PAPER_AUTO_SKIP_SEC,
+  sizeLadder,
+  suggestedQty,
+} from "@/lib/meridian/operator-copy";
+import type { ScanRow } from "@/lib/desk-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
 import { paperSend } from "@/lib/desk-ops";
@@ -133,52 +142,17 @@ function AutoPage() {
           />
         </div>
 
-        <div className="rounded-[24px] border border-border bg-surface p-5">
+        <div className="rounded-[24px] border border-border bg-surface p-5" data-action-center>
           <h2 className="text-sm font-medium">
             {killed ? "HALTED — no new clips" : mode === "advisory" ? "Action center — would send, not sent" : "Action center"}
           </h2>
-          <p className="mt-1 text-xs text-subtle">
-            {killed
-              ? "No new clips. Open risk still here — hard stop, time stop, trail, and session exits still run. Resume paper from Halt."
-              : mode === "advisory"
-                ? "Approve opens a paper clip. Skip cools the name for 15 minutes. Stops still run. Cash/F&O/MCX stay propose-only."
-                : mode === "auto"
-                  ? "Auto is sending crypto spot only. Skip a name or flatten an open clip. Cash, F&O, MCX do not fill."
-                  : "Paper is sending crypto spot. Skip a name or flatten an open clip."}
-          </p>
+          <p className="mt-1 text-xs text-subtle">{actionCenterBlurb(mode, killed)}</p>
           {scan.length === 0 ? (
             <p className="mt-3 text-sm text-muted">Waiting on the next scan tick.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {[...pending, ...idle].slice(0, 16).map((r) => (
-                <li key={r.symbol} className={`flex flex-wrap items-center gap-2 rounded-[16px] border border-border bg-elevated p-3 ${killed ? "opacity-50" : ""}`}>
-                  <span className="font-mono text-xs">{r.symbol}</span>
-                  <Badge tone={r.action === "BUY" ? "up" : r.action === "SELL" ? "down" : "neutral"}>
-                    {mode === "advisory" && (r.action === "BUY" || r.action === "SELL") ? `Would ${r.action}` : r.action}
-                  </Badge>
-                  <span className="text-muted">{(r.metaProb * 100).toFixed(0)}% meta</span>
-                  <span className="text-subtle">{explainReason(r.reason)}</span>
-                  <span className="ml-auto flex flex-wrap gap-2">
-                    {mode === "advisory" && (r.action === "BUY" || r.action === "SELL") && (
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          void paperSend({
-                            type: "open",
-                            symbol: r.symbol.replace(/^(farm|pnl):/, ""),
-                            side: r.action === "SELL" ? "short" : "long",
-                            sleeve: r.sleeve,
-                          })
-                        }
-                      >
-                        Approve
-                      </Button>
-                    )}
-                    <Button size="sm" variant="outline" onClick={() => void paperSend({ type: "skip", symbol: r.symbol })}>
-                      Skip
-                    </Button>
-                  </span>
-                </li>
+                <ActionCenterRow key={r.symbol} row={r} mode={mode} killed={killed} />
               ))}
             </ul>
           )}
@@ -188,7 +162,7 @@ function AutoPage() {
           <h2 className="text-sm font-medium">Open clips</h2>
           {positions.length === 0 ? (
             <p className="mt-3 text-sm text-muted">
-              No open clips. Paper or Auto must be on, Halt off. Signals still shows proposals above.
+              No open clips. Approve on Paper, or Auto-send, with Halt off. Signals still shows proposals above.
             </p>
           ) : (
             <div className="mt-3 overflow-x-auto">
@@ -236,8 +210,13 @@ function AutoPage() {
                         <td>{(p.metaProb * 100).toFixed(0)}%</td>
                         <td className={pnl >= 0 ? "text-up" : "text-down"}>{inr(pnl)}</td>
                         <td>
-                          <Button size="sm" variant="outline" onClick={() => void paperSend({ type: "flatten", symbol: p.symbol })}>
-                            Flatten
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            data-flatten-one
+                            onClick={() => void paperSend({ type: "flatten", symbol: p.symbol })}
+                          >
+                            Flatten one
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => void paperSend({ type: "reverse", symbol: p.symbol })}>
                             Reverse
@@ -288,6 +267,111 @@ function AutoPage() {
         </div>
       </div>
     </DeskShell>
+  );
+}
+
+function ActionCenterRow({
+  row,
+  mode,
+  killed,
+}: {
+  row: ScanRow;
+  mode: "advisory" | "paper" | "auto";
+  killed: boolean;
+}) {
+  const actionable = !killed && (row.action === "BUY" || row.action === "SELL");
+  const showApprove = actionable && (mode === "advisory" || mode === "paper");
+  const paperTimer = showApprove && mode === "paper";
+  const baseQty = suggestedQty(row.px || 0, row.sizePct || 0.015);
+  const ladder = sizeLadder(baseQty);
+  const [mult, setMult] = useState(1);
+  const chosen = ladder.find((x) => x.mult === mult) ?? ladder[1]!;
+  const deadlineRef = useRef<number | null>(null);
+  const [left, setLeft] = useState(PAPER_AUTO_SKIP_SEC);
+  const skipped = useRef(false);
+
+  useEffect(() => {
+    if (!paperTimer) {
+      deadlineRef.current = null;
+      skipped.current = false;
+      setLeft(PAPER_AUTO_SKIP_SEC);
+      return;
+    }
+    if (deadlineRef.current == null) deadlineRef.current = Date.now() + PAPER_AUTO_SKIP_SEC * 1000;
+    const tick = () => {
+      const dl = deadlineRef.current;
+      if (dl == null) return;
+      const sec = Math.max(0, (dl - Date.now()) / 1000);
+      setLeft(sec);
+      if (sec <= 0 && !skipped.current) {
+        skipped.current = true;
+        void paperSend({ type: "skip", symbol: row.symbol });
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [paperTimer, row.symbol]);
+
+  return (
+    <li
+      className={`flex flex-wrap items-center gap-2 rounded-[16px] border border-border bg-elevated p-3 ${killed ? "opacity-50" : ""}`}
+      data-action-row={row.symbol}
+    >
+      <span className="font-mono text-xs">{row.symbol}</span>
+      <Badge tone={row.action === "BUY" ? "up" : row.action === "SELL" ? "down" : "neutral"}>
+        {mode === "advisory" && (row.action === "BUY" || row.action === "SELL") ? `Would ${row.action}` : row.action}
+      </Badge>
+      <span className="text-muted">{(row.metaProb * 100).toFixed(0)}% meta</span>
+      {showApprove && (
+        <span className="font-mono text-[11px] text-subtle" data-size-pct>
+          Size {((row.sizePct ?? 0) * 100).toFixed(1)}%
+        </span>
+      )}
+      <span className="text-subtle">{explainReason(row.reason)}</span>
+      {paperTimer && (
+        <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[11px] text-subtle" data-auto-skip>
+          {autoSkipLabel(left)}
+        </span>
+      )}
+      <span className="ml-auto flex flex-wrap items-center gap-2">
+        {showApprove && (
+          <span className="flex items-center gap-1" data-size-control>
+            {ladder.map((s) => (
+              <Button
+                key={s.label}
+                size="sm"
+                variant={s.mult === mult ? "default" : "outline"}
+                aria-label={`Size ${s.label}`}
+                onClick={() => setMult(s.mult)}
+              >
+                {s.label}
+              </Button>
+            ))}
+          </span>
+        )}
+        {showApprove && (
+          <Button
+            size="sm"
+            data-approve
+            onClick={() =>
+              void paperSend({
+                type: "open",
+                symbol: row.symbol.replace(/^(farm|pnl):/, ""),
+                side: row.action === "SELL" ? "short" : "long",
+                sleeve: row.sleeve,
+                qty: chosen.qty,
+              })
+            }
+          >
+            Approve
+          </Button>
+        )}
+        <Button size="sm" variant="outline" data-skip onClick={() => void paperSend({ type: "skip", symbol: row.symbol })}>
+          Skip
+        </Button>
+      </span>
+    </li>
   );
 }
 

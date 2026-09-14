@@ -336,7 +336,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 35;
+const ENGINE_REV = 36;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -617,7 +617,7 @@ async function tickUnlocked() {
 
   const clock = sessionClock();
   const now = Date.now();
-  const signalsOnly = eng.mode === "advisory" && !eng.killed;
+  const proposeOnly = (eng.mode === "advisory" || eng.mode === "paper") && !eng.killed;
   let positions = [...eng.positions];
 
   const still: Position[] = [];
@@ -864,7 +864,7 @@ async function tickUnlocked() {
         px: row.px,
         sleeve,
         sizePct: row.intent.sizePct,
-        pending: !skip && signalsOnly && (row.intent.action === "BUY" || row.intent.action === "SELL"),
+        pending: !skip && proposeOnly && (row.intent.action === "BUY" || row.intent.action === "SELL"),
       });
     }
 
