@@ -1,4 +1,5 @@
 import type { Regime } from "./scoring";
+import { endWithNotAnOrder } from "./operator-copy";
 
 export type AdviceCard = {
   id: string;
@@ -40,7 +41,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Spot",
       stance: "Reduce",
       title: "Cut equity beta",
-      body: "India VIX is elevated. Fresh cash longs wait. Existing quality names can sit; do not add cyclical beta. Not an order.",
+      body: endWithNotAnOrder("India VIX is elevated. Fresh cash longs wait. Existing quality names can sit; do not add cyclical beta."),
       urgency: "now",
     });
     cards.push({
@@ -48,7 +49,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Futures",
       stance: "Short",
       title: "Index futures only as a hedge",
-      body: "If the book is long delta, a small Nifty/Bank Nifty short is a hedge, not a view. Size to leftover delta, not conviction. Not an order.",
+      body: endWithNotAnOrder("If the book is long delta, a small Nifty/Bank Nifty short is a hedge, not a view. Size to leftover delta, not conviction."),
       urgency: "session",
     });
     cards.push({
@@ -56,7 +57,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Options",
       stance: "Harvest",
       title: "Prefer long gamma",
-      body: "Wide daily ranges pay the ½ Γ (ΔS)² term if you flatten leftover delta. Avoid naked short vol. Not an order.",
+      body: endWithNotAnOrder("Wide daily ranges pay the ½ Γ (ΔS)² term if you flatten leftover delta. Avoid naked short vol."),
       urgency: "now",
     });
     cards.push({
@@ -64,7 +65,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Crypto",
       stance: "Reduce",
       title: "Cut crypto size",
-      body: "Weekend gaps and thin books. BTC is collateral, not a hero trade. Delta paper only. Not an order.",
+      body: endWithNotAnOrder("Weekend gaps and thin books. BTC is collateral, not a hero trade. Delta paper only."),
       urgency: "now",
     });
     cards.push({
@@ -72,7 +73,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "FX",
       stance: "Long",
       title: "USDINR as a rupee hedge",
-      body: "Stress in equities often prints a firmer dollar. A small USDINR long is a hedge, not a view. Not an order.",
+      body: endWithNotAnOrder("Stress in equities often prints a firmer dollar. A small USDINR long is a hedge, not a view."),
       urgency: "session",
     });
     cards.push({
@@ -80,7 +81,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Commodity",
       stance: "Long",
       title: "Gold over crude",
-      body: "MCX gold is the defensive sleeve. Crude stays a tape, not a core hold, while VIX is up. Not an order.",
+      body: endWithNotAnOrder("MCX gold is the defensive sleeve. Crude stays a tape, not a core hold, while VIX is up."),
       urgency: "session",
     });
   } else if (m.regime === "Elevated") {
@@ -90,8 +91,8 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       stance: "Neutral",
       title: "Hold quality, skip chase",
       body: promoted
-        ? "Tape is two-sided. Add only where five-factor score still clears Buy and meta-prob is above 0.55. Not an order."
-        : "Tape is two-sided, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only. Not an order.",
+        ? endWithNotAnOrder("Tape is two-sided. Add only where five-factor score still clears Buy and meta-prob is above 0.55.")
+        : endWithNotAnOrder("Tape is two-sided, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only."),
       urgency: "session",
     });
     cards.push({
@@ -99,7 +100,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Futures",
       stance: "Neutral",
       title: "No naked index direction",
-      body: "Use futures to flatten gamma-scalp leftover delta, not to express a new index view. Not an order.",
+      body: endWithNotAnOrder("Use futures to flatten gamma-scalp leftover delta, not to express a new index view."),
       urgency: "watch",
     });
     cards.push({
@@ -107,7 +108,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Options",
       stance: "Long",
       title: "Defined-risk structures",
-      body: "Debit spreads over naked calls. Time decay still bites. Not an order.",
+      body: endWithNotAnOrder("Debit spreads over naked calls. Time decay still bites."),
       urgency: "session",
     });
     cards.push({
@@ -115,7 +116,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Crypto",
       stance: "Neutral",
       title: "BTC only, skip alts",
-      body: "ETH/SOL wait. One BTC clip if heat is under the cap. Not an order.",
+      body: endWithNotAnOrder("ETH/SOL wait. One BTC clip if heat is under the cap."),
       urgency: "watch",
     });
     cards.push({
@@ -123,7 +124,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "FX",
       stance: "Neutral",
       title: "Fade G10 chase",
-      body: "EURUSD and GBPUSD stay inside the London overlap. No overnight yen heroics. Not an order.",
+      body: endWithNotAnOrder("EURUSD and GBPUSD stay inside the London overlap. No overnight yen heroics."),
       urgency: "watch",
     });
     cards.push({
@@ -131,7 +132,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Commodity",
       stance: "Neutral",
       title: "Gold holds, silver waits",
-      body: "MCX gold can sit. Silver and natgas are too whippy for a new clip. Not an order.",
+      body: endWithNotAnOrder("MCX gold can sit. Silver and natgas are too whippy for a new clip."),
       urgency: "session",
     });
   } else {
@@ -141,8 +142,8 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       stance: "Long",
       title: "Buy quality on dips",
       body: promoted
-        ? "Calm regime. Five-factor Buy names with meta above 0.55 can be worked in cash. Heat still capped. Not an order."
-        : "Calm tape, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only. Not an order.",
+        ? endWithNotAnOrder("Calm regime. Five-factor Buy names with meta above 0.55 can be worked in cash. Heat still capped.")
+        : endWithNotAnOrder("Calm tape, but the paper model is not promoted. Do not treat Book Buy as model-backed. Farm clips only."),
       urgency: "session",
     });
     cards.push({
@@ -151,8 +152,8 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       stance: weekend ? "Neutral" : "Long",
       title: weekend ? "Cash session closed" : "Index longs only with a stop",
       body: weekend
-        ? "Cash session is closed. No NSE futures overlay until the next open. Crypto farm only. Not an order."
-        : "Nifty futures are allowed as a tactical overlay if daily loss and heat gates are clear. Flatten 15 minutes before close. Not an order.",
+        ? endWithNotAnOrder("Cash session is closed. No NSE futures overlay until the next open. Crypto farm only.")
+        : endWithNotAnOrder("Nifty futures are allowed as a tactical overlay if daily loss and heat gates are clear. Flatten 15 minutes before close."),
       urgency: "watch",
     });
     cards.push({
@@ -160,7 +161,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Options",
       stance: "Neutral",
       title: "Do not overpay for vol",
-      body: "Low VIX makes long gamma expensive versus realised. Prefer cash or small calendars. Not an order.",
+      body: endWithNotAnOrder("Low VIX makes long gamma expensive versus realised. Prefer cash or small calendars."),
       urgency: "watch",
     });
     cards.push({
@@ -168,7 +169,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Crypto",
       stance: "Long",
       title: "BTC / ETH on dips",
-      body: "Calm equity vol often coincides with cleaner crypto trend. Paper on Delta. Size vs INR budget, not USD notional. Not an order.",
+      body: endWithNotAnOrder("Calm equity vol often coincides with cleaner crypto trend. Paper on Delta. Size vs INR budget, not USD notional."),
       urgency: "session",
     });
     cards.push({
@@ -176,7 +177,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "FX",
       stance: "Neutral",
       title: "USDINR range",
-      body: "Rupee pair is a carry sleeve, not a punch. Fade extremes vs the 20-day. Not an order.",
+      body: endWithNotAnOrder("Rupee pair is a carry sleeve, not a punch. Fade extremes vs the 20-day."),
       urgency: "watch",
     });
     cards.push({
@@ -184,7 +185,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Commodity",
       stance: "Long",
       title: "Copper + gold barbell",
-      body: "Copper rides the data-center / grid tape. Gold stays the ballast. Crude only with a stop. Not an order.",
+      body: endWithNotAnOrder("Copper rides the data-center / grid tape. Gold stays the ballast. Crude only with a stop."),
       urgency: "session",
     });
   }
@@ -194,7 +195,7 @@ export function buildAdvice(m: MarketState, ctx?: { promoted?: boolean }): Advic
       sleeve: "Book",
       stance: "Reduce",
       title: "Put-call ratio is thin",
-      body: `PCR at ${m.pcr.toFixed(2)} — call-heavy open interest. Fade chase, do not join it. Not an order.`,
+      body: endWithNotAnOrder(`PCR at ${m.pcr.toFixed(2)} — call-heavy open interest. Fade chase, do not join it.`),
       urgency: "session",
     });
   }

@@ -8,7 +8,7 @@ import { inr, pct, formatPx, formatIst, formatIstStamp } from "@/lib/utils";
 import { reviewHolding } from "@/lib/meridian/portfolio";
 import type { MarketState } from "@/lib/meridian/advice";
 import { PromotionStrip } from "@/components/promotion-strip";
-import { explainReason, quoteSourceEnglish, sleeveEnglish } from "@/lib/meridian/operator-copy";
+import { explainReason, NOT_AN_ORDER, quoteSourceEnglish, sleeveEnglish } from "@/lib/meridian/operator-copy";
 import { getPaperBook } from "@/lib/server/desk";
 import { paperSend } from "@/lib/desk-ops";
 import { DeskTilt } from "@/components/desk-tilt";
@@ -44,7 +44,7 @@ function Command() {
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Command</p>
             <h1 className="mt-1 font-display text-4xl leading-none md:text-5xl">Multi-asset desk</h1>
             <p className="mt-2 max-w-xl text-sm text-muted">
-              Live Binance USDT + Yahoo NSE/FX/COMEX. Futures/options on Tape are derived. Auto paper. Not an order.
+              Live Binance USDT + Yahoo NSE/FX/COMEX. Futures/options on Tape are derived. Auto paper. (not an order).
               Live Kite stays disarmed.
             </p>
           </div>
@@ -102,13 +102,23 @@ function Command() {
 
         <section className="grid gap-6 lg:grid-cols-5">
           <div className="rounded-[24px] border border-border bg-surface p-5 lg:col-span-3">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium">Market advice</h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2" data-advice-panel>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-medium">Market advice</h2>
+                <span className="text-[11px] text-subtle" data-not-an-order>
+                  {NOT_AN_ORDER}
+                </span>
+              </div>
               <span className="text-[11px] text-subtle">Spot · Futures · Options · Crypto · FX · Commodity</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               {(q.data?.advice ?? []).map((c) => (
-                <article key={c.id} className="rounded-[16px] border border-border bg-elevated p-4">
+                <article
+                  key={c.id}
+                  className="rounded-[16px] border border-border bg-elevated p-4"
+                  data-advice-card
+                  data-not-an-order={NOT_AN_ORDER}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <Badge tone="neutral">{c.sleeve}</Badge>
                     <span className="text-[11px] uppercase tracking-wider text-muted">{c.stance}</span>

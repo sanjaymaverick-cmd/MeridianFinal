@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { runDeskOp } from "@/components/auto-engine";
 import { toast } from "sonner";
 import { DEMO_NIFTY_LEGS, explainScalp, snapshotFromLegs, type OptionLeg } from "@/lib/meridian/greeks";
+import { NOT_AN_ORDER, hedgeReviewLots } from "@/lib/meridian/operator-copy";
 import { useDesk } from "@/lib/desk-store";
 import { inr } from "@/lib/utils";
 
@@ -48,9 +49,9 @@ function GreeksPage() {
           <p className="mt-2 max-w-2xl text-sm text-muted">
             Demo book — not your live paper clips. Daily PnL is one-day theta. Gamma Scalping PnL is the textbook ½ Γ
             (ΔS)² term. Long gamma can help if you keep leftover delta small. Short gamma does the opposite. Reviews
-            only — not an order.
+            only — {NOT_AN_ORDER}.
           </p>
-          <p className="mt-2 text-xs text-warn">Teaching surface on a Nifty demo straddle. Queue hedge sends a paper clip, not Kite.</p>
+          <p className="mt-2 text-xs text-warn">Teaching surface on a Nifty demo straddle. Hedge row is a review {NOT_AN_ORDER}. Queue paper hedge sends a paper clip, not Kite.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -97,10 +98,11 @@ function GreeksPage() {
             <p className="mt-2 text-sm text-muted">{report.gammaScalpLine}</p>
             <p className="mt-3 text-sm">{report.suggestion}</p>
             {report.needsRehedge && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2" data-hedge-review>
+                <p className="w-full text-sm font-medium">Hedge review {NOT_AN_ORDER}</p>
                 <p className="w-full text-sm text-warn">
                   Suggested futures clip: {report.suggestedFuturesLots >= 0 ? "+" : ""}
-                  {report.suggestedFuturesLots.toFixed(1)} lots (review only).
+                  {report.suggestedFuturesLots.toFixed(1)} lots — review only {NOT_AN_ORDER}.
                 </p>
                 <Button
                   size="sm"
@@ -110,7 +112,7 @@ function GreeksPage() {
                       side: report.suggestedFuturesLots >= 0 ? "long" : "short",
                       qty: Math.max(1, Math.abs(report.suggestedFuturesLots)),
                     });
-                    toast.message("Queued a paper hedge. Kite stays off.");
+                    toast.message("Queued a paper hedge review. Kite stays off.");
                   }}
                 >
                   Queue paper hedge
@@ -122,21 +124,22 @@ function GreeksPage() {
             )}
           </div>
           <div className="rounded-[24px] border border-border bg-surface p-5">
-            <h2 className="text-sm font-medium">Rehedge path</h2>
+            <h2 className="text-sm font-medium">Rehedge path <span className="font-normal text-subtle" data-not-an-order>{NOT_AN_ORDER}</span></h2>
             <ol className="mt-4 space-y-4" style={{ perspective: "900px" }}>
               {report.steps.map((st) => (
                 <li
                   key={st.label}
                   className="rounded-[16px] border border-border bg-elevated p-4 transition-transform duration-180 hover:-translate-y-0.5"
                   style={{ transform: "rotateX(4deg)" }}
+                  data-hedge-review
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">{st.label}</span>
                     <span className="font-mono text-xs text-muted">{st.price.toFixed(1)}</span>
                   </div>
                   <p className="mt-2 text-sm text-muted">{st.note}</p>
-                  <p className="mt-2 font-mono text-xs text-subtle">
-                    Δ {st.deltaLots.toFixed(2)} · hedge {st.hedgeLots.toFixed(1)} · locked {inr(st.lockedPnl)}
+                  <p className="mt-2 font-mono text-xs text-subtle" data-hedge-lots>
+                    Δ {st.deltaLots.toFixed(2)} · {hedgeReviewLots(st.hedgeLots)} · locked {inr(st.lockedPnl)}
                   </p>
                 </li>
               ))}
