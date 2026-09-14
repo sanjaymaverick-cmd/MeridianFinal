@@ -336,7 +336,15 @@ const g = globalThis as typeof globalThis & {
   __paperTickLock__?: boolean;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 36;
+const ENGINE_REV = 37;
+
+
+/** Append :paper to money-path / sample reasons; idempotent. */
+function paperReason(reason: string): string {
+  const r = String(reason ?? "");
+  return r.endsWith(":paper") ? r : `${r}:paper`;
+}
+
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -721,8 +729,8 @@ async function tickUnlocked() {
         holdSec,
         fwdRet: fwdRetNet,
         fwdRetGross,
-        reasonOpen: pos.reasonOpen,
-        reasonClose: intent.reason,
+        reasonOpen: paperReason(pos.reasonOpen),
+        reasonClose: paperReason(intent.reason),
         metaProb: pos.metaProb,
         confidence: pos.confidence,
         confluence: pos.confluence,
@@ -1317,8 +1325,8 @@ async function settlePredWindows(eng: Engine, now: number) {
       pnl,
       holdSec: (now - pos.entryTs) / 1000,
       fwdRet: netFwdRet(pos.entryPrice, px, pos.side),
-      reasonOpen: pos.reasonOpen,
-      reasonClose: `pred_settle:${source}`,
+      reasonOpen: paperReason(pos.reasonOpen),
+      reasonClose: paperReason(`pred_settle:${source}`),
       metaProb: pos.metaProb,
       confidence: pos.confidence,
       confluence: pos.confluence,

@@ -160,6 +160,11 @@ test("boot paused Signals; paper fills tagged :paper; Halt/Reset need auth", () 
   assert.doesNotMatch(engine, /:live`/);
   assert.doesNotMatch(engine, /flatten_operator:[^`]*:live/);
   assert.doesNotMatch(engine, /reason: `\$\{sleeve\}:\$\{skip \?\? row\.intent\.reason}`/);
+
+  assert.match(engine, /function paperReason/);
+  assert.match(engine, /reasonOpen: paperReason\(pos\.reasonOpen\)/);
+  assert.match(engine, /reasonClose: paperReason\(intent\.reason\)/);
+
   assert.match(shell, /Resume paper/);
   assert.doesNotMatch(shell, /\bArm\b/);
   const flags = desk.slice(desk.indexOf("export const setPaperFlags"), desk.indexOf("export const resetPaperBook"));
