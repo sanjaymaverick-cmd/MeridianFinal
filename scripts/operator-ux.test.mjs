@@ -233,3 +233,36 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+test("IMP-04 kill split: Pause does not flatten; exits still run; Flatten+Reset confirm", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
+  const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
+
+  const flags = engine.slice(engine.indexOf("export function setEngineFlags"), engine.indexOf("export function resetEngine"));
+  assert.match(flags, /if \(patch\.killed != null\) e\.killed = patch\.killed/);
+  assert.doesNotMatch(flags, /flatten/i);
+  assert.doesNotMatch(flags, /positions\s*=\s*\[\]/);
+
+  assert.match(engine, /intent = manage\(/);
+  assert.doesNotMatch(engine, /if\s*\(\s*eng\.killed\s*\)\s*[^{]*manage\(/);
+  assert.doesNotMatch(engine, /if\s*\(\s*!eng\.killed\s*\)\s*\{[^}]*manage\(/);
+  // exits (manage) must not sit behind killed — only new opens use autoCanSend(eng.mode, eng.killed)
+  assert.match(engine, /autoCanSend\(eng\.mode, eng\.killed\)/);
+  const manageIdx = engine.indexOf("intent = manage(");
+  const killedGateBeforeManage = engine.lastIndexOf("if (eng.killed", manageIdx);
+  assert.ok(killedGateBeforeManage < 0 || manageIdx - killedGateBeforeManage > 800, "manage must not be gated on eng.killed");
+
+  assert.match(shell, /flattenAsk/);
+  assert.match(shell, /Confirm flatten/);
+  assert.match(shell, /setFlattenAsk\(true\)/);
+  assert.doesNotMatch(shell, /onClick=\{\(\) => void paperSend\(\{ type: "flatten_all" \}\)\}/);
+  assert.match(shell, /Open clips stay/);
+  assert.match(shell, /exits still run/i);
+  assert.doesNotMatch(shell, /Stops pause/);
+
+  assert.match(autoPage, /resetAsk/);
+  assert.match(autoPage, /Confirm reset/);
+  assert.match(autoPage, /setResetAsk\(true\)/);
+  assert.match(autoPage, /exits still run/i);
+});
