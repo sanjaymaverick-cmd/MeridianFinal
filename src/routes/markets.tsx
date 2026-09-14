@@ -189,7 +189,7 @@ function MarketsPage() {
                       <div className="font-mono text-xs">{r.symbol}</div>
                       <div className="text-[11px] text-subtle">
                         {r.name}
-                        {delayed ? " · DELAYED · MODEL" : ""}
+                        {delayed ? (String(("source" in r && r.source) || "").toLowerCase().includes("model") ? " · DELAYED · MODEL" : " · STALE") : ""}
                         {blocked ? " · NSE CLOSED" : ""}
                       </div>
                     </td>

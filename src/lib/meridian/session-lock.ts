@@ -24,3 +24,5 @@ export function isCryptoHoursName(symbol: string, feed?: string) {
   if (u.startsWith("BTC") || u.startsWith("ETH") || u.startsWith("SOL")) return true;
   return cryptoFamily(symbol) != null;
 }
+
+export { isCryptoLastSource, applyOffSessionDelayed } from "./quote-freshness";

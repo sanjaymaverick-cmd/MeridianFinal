@@ -66,7 +66,7 @@ function Command() {
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat tilt symbol="BTC" label="Bitcoin" value={formatPx(q.data?.state.btc ?? ticks.BTC ?? 77205, "USD")} sub={pct(q.data?.state.btcChg ?? 0)} up={(q.data?.state.btcChg ?? 0) >= 0} />
           <Stat tilt symbol="ETH" label="Ether" value={formatPx(ticks.ETH ?? 0, "USD")} sub="crypto farm" />
-          <Stat tilt label="India VIX" value={(q.data?.state.indiaVix ?? 11.2).toFixed(1)} sub="vol regime" />
+          <Stat tilt label="India VIX" value={(q.data?.state.indiaVix ?? 11.2).toFixed(1)} sub={closed ? "STALE · vol regime" : "vol regime"} stale={closed} />
           <Stat
             tilt
             label="Paper P&L"
@@ -74,8 +74,8 @@ function Command() {
             sub={`Kite off · ${positions.length} open clips`}
             up={dailyPnl >= 0}
           />
-          <Stat label="Nifty" value={nifty.toFixed(1)} sub={closed ? `STALE · ${pct(q.data?.state.niftyChg ?? 0)}` : pct(q.data?.state.niftyChg ?? 0)} up={!closed && (q.data?.state.niftyChg ?? 0) >= 0} />
-          <Stat label="Bank Nifty" value={(q.data?.state.bankNifty ?? ticks.BANKNIFTY ?? 57762).toFixed(0)} sub={closed ? "STALE" : pct(q.data?.state.bankChg ?? 0)} up={!closed && (q.data?.state.bankChg ?? 0) >= 0} />
+          <Stat label="Nifty" value={nifty.toFixed(1)} sub={closed ? `STALE · ${pct(q.data?.state.niftyChg ?? 0)}` : pct(q.data?.state.niftyChg ?? 0)} up={!closed && (q.data?.state.niftyChg ?? 0) >= 0} stale={closed} />
+          <Stat label="Bank Nifty" value={(q.data?.state.bankNifty ?? ticks.BANKNIFTY ?? 57762).toFixed(0)} sub={closed ? "STALE" : pct(q.data?.state.bankChg ?? 0)} up={!closed && (q.data?.state.bankChg ?? 0) >= 0} stale={closed} />
           <Stat
             label="Gold MCX est."
             value={formatPx(q.data?.state.gold ?? ticks.GOLD ?? 158360)}
@@ -200,6 +200,7 @@ function Stat({
   up,
   tilt,
   symbol,
+  stale,
 }: {
   label: string;
   value: string;
@@ -207,9 +208,10 @@ function Stat({
   up?: boolean;
   tilt?: boolean;
   symbol?: string;
+  stale?: boolean;
 }) {
   const inner = (
-    <div className={tilt ? "p-5" : "rounded-[24px] border border-border bg-surface p-5"}>
+    <div className={tilt ? "p-5" : "rounded-[24px] border border-border bg-surface p-5"} data-tile-stale={stale ? "1" : undefined}>
       <p className="text-[11px] uppercase tracking-wider text-subtle">{label}</p>
       <p className="mt-2 font-mono text-2xl tabular-nums">
         {symbol ? (

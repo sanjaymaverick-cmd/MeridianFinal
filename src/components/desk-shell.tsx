@@ -119,14 +119,14 @@ export function DeskShell({ children }: { children: ReactNode }) {
   const vix = ticks.INDIAVIX ?? 0;
   const gold = ticks.GOLD ?? 0;
   const usd = ticks.USDINR ?? 0;
-  const tape = [
-    `NIFTY ${nifty.toFixed(0)}${closed ? " STALE" : ""}`,
-    `VIX ${vix.toFixed(1)}`,
-    `BTC ${formatPx(btc, "USD")}`,
-    `ETH ${formatPx(eth, "USD")}`,
-    `GOLD ${formatPx(gold)}`,
-    `USDINR ${formatPx(usd, "FX")}`,
-  ];
+  const niftyTape = `NIFTY ${nifty.toFixed(0)}${closed ? " STALE" : ""}`;
+  const vixTape = `VIX ${vix.toFixed(1)}${closed ? " STALE" : ""}`;
+  const cryptoTape = [`BTC ${formatPx(btc, "USD")}`, `ETH ${formatPx(eth, "USD")}`];
+  const otherTape = [`GOLD ${formatPx(gold)}`, `USDINR ${formatPx(usd, "FX")}`];
+  // Weekend / night: crypto last leads; stale NSE tiles trail.
+  const tape = closed
+    ? [...cryptoTape, niftyTape, vixTape, ...otherTape]
+    : [niftyTape, vixTape, ...cryptoTape, ...otherTape];
 
   return (
     <div className="min-h-dvh bg-bg text-fg" data-desk={deskState}>
