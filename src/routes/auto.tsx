@@ -28,6 +28,7 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { toast } from "sonner";
 import { paperSend } from "@/lib/desk-ops";
 import { HeatRing } from "@/components/heat-ring";
+import type { ScanHealth } from "@/lib/meridian/scan-health";
 
 export const Route = createFileRoute("/auto")({ component: AutoPage });
 
@@ -40,6 +41,7 @@ function AutoPage() {
   const dailyPnl = useDesk((s) => s.dailyPnl);
   const scan = useDesk((s) => s.scan);
   const lastTick = useDesk((s) => s.lastTick);
+  const storeHealth = useDesk((s) => s.scanHealth);
   const { user, isPending } = useCurrentUserState();
   const guest = !isPending && !user;
   const paper = useQuery({ queryKey: ["paper"], queryFn: () => getPaperBook(), refetchInterval: 2500 });
@@ -175,9 +177,14 @@ function AutoPage() {
               Last scan · {lastTick > 0 ? formatIstStamp(lastTick) : "…"} IST
             </p>
           </div>
+          <ScanHealthLine health={(paper.data?.scanHealth ?? storeHealth) as ScanHealth | null | undefined} lastTick={paper.data?.lastTick ?? lastTick} />
           <p className="mt-1 text-xs text-subtle">{actionCenterBlurb(mode, killed)}</p>
           {scan.length === 0 ? (
-            <p className="mt-3 text-sm text-muted">Waiting on the next scan tick.</p>
+            <p className="mt-3 text-sm text-muted" data-blank-scan>
+              {(paper.data?.scanHealth ?? storeHealth)?.blankTape
+                ? (paper.data?.scanHealth ?? storeHealth)?.label
+                : "Waiting on the next scan tick."}
+            </p>
           ) : (
             <ul className="mt-3 space-y-2">
               {[...pending, ...idle].slice(0, 16).map((r) => (
@@ -413,6 +420,17 @@ function ActionCenterRow({
         </Button>
       </span>
     </li>
+  );
+}
+
+function ScanHealthLine({ health, lastTick }: { health: ScanHealth | null | undefined; lastTick: number }) {
+  const status = health?.status ?? "ok";
+  const stamp = lastTick > 0 ? formatIstStamp(lastTick) : "no scan yet";
+  return (
+    <p className="mt-1 text-xs" data-scan-health={status} data-last-scan={lastTick || ""}>
+      <span className={status === "ok" ? "text-subtle" : "font-medium text-warn"}>{health?.label ?? "SCAN OK"}</span>
+      <span className="text-subtle"> · Last scan {stamp}</span>
+    </p>
   );
 }
 
