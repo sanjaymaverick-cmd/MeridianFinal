@@ -215,8 +215,8 @@ export function DeskShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 border-t border-border px-4 py-2 text-xs md:px-6">
-          <span className={dailyPnl >= 0 ? "text-up" : "text-down"}>P&L {inr(dailyPnl)}</span>
-          <span className={mtm >= 0 ? "text-up" : "text-down"}>MTM {inr(mtm)}</span>
+          <span className={dailyPnl >= 0 ? "text-up" : "text-down"}>Paper P&L {inr(dailyPnl)}</span>
+          <span className={mtm >= 0 ? "text-up" : "text-down"}>Paper MTM {inr(mtm)}</span>
           <span className="flex items-center gap-1">
             <HeatRing heat={heat} cap={0.9} />
             HEAT {(heat * 100).toFixed(0)}%
