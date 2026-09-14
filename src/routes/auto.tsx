@@ -279,6 +279,9 @@ function AutoPage() {
                 <span className="text-subtle" data-quote-source>
                   {quoteSourceEnglish(f.quoteLabel)}
                 </span>
+                <span className="font-mono text-[11px] text-muted" data-quote-path>
+                  {f.quotePath ?? "quote:last"}
+                </span>
                 <span className="text-subtle">{explainReason(f.reason)}</span>
               </li>
             ))}

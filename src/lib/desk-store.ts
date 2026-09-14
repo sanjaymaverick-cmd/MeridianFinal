@@ -17,6 +17,8 @@ export type Fill = {
   price: number;
   reason: string;
   quoteLabel?: "live" | "delayed" | "model";
+  /** Feed path tag e.g. quote:binance — not a money-path fill reason. */
+  quotePath?: string;
   expiry?: string;
   strike?: number;
   right?: string;

@@ -183,6 +183,9 @@ function Command() {
                       <td className="font-mono">{f.price.toFixed(2)}</td>
                       <td data-fill-sleeve>{sleeveEnglish(f.sleeve)}</td>
                       <td className="text-muted" data-quote-source>{quoteSourceEnglish(f.quoteLabel)}</td>
+                      <td className="font-mono text-xs text-muted" data-quote-path>
+                        {f.quotePath ?? "quote:last"}
+                      </td>
                       <td className="text-muted">{explainReason(f.reason)}</td>
                       <td>
                         {positions.some((p) => p.symbol === f.symbol) ? (
