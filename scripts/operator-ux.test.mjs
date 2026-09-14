@@ -233,3 +233,54 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /Crypto spot farm/);
 });
+
+test("IMP-07 META copy: n/a not 0%; Factor Buy not model-backed; two ledgers named", () => {
+  const book = readFileSync(join(root, "../src/routes/portfolio.tsx"), "utf8");
+  assert.match(book, /n\/a — not promoted/);
+  assert.match(book, /promoted \? `\$\{\(r\.metaProb \* 100\)\.toFixed\(0\)\}%` : "n\/a — not promoted"/);
+  assert.match(book, /Factor \$\{r\.action\}/);
+  assert.match(book, /Paper clips/);
+  assert.match(book, /\bHoldings\b/);
+  assert.match(book, /Imported Zerodha CSV is a second tab/);
+  assert.match(book, /do not add size on meta/);
+  const advice = readFileSync(join(root, "../src/lib/meridian/advice.ts"), "utf8");
+  assert.match(advice, /Do not treat Book Buy as model-backed/);
+  // meta-0.55 cash-work copy only on the promoted arm of each ternary
+  const elev = advice.slice(advice.indexOf('regime === "Elevated"'), advice.indexOf("} else {"));
+  const calm = advice.slice(advice.lastIndexOf("} else {"));
+  assert.match(elev, /promoted\s*\?\s*"Tape is two-sided\.[\s\S]*0\.55[\s\S]*:\s*"Tape is two-sided, but the paper model is not promoted/);
+  assert.match(calm, /promoted\s*\?\s*"Calm regime\.[\s\S]*0\.55[\s\S]*:\s*"Calm tape, but the paper model is not promoted/);
+  assert.match(advice, /meta above 0\.55/);
+  assert.match(advice, /meta-prob is above 0\.55/);
+
+  const copy = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(copy, /treat Book Buy as model-backed/);
+  assert.match(copy, /Ignore Command cash advice that assumes a 0\.55 meta gate/);
+
+  // runtime: unpromoted Calm advice must not pitch the 0.55 gate
+  const adviceUrl = pathToFileURL(join(root, "../src/lib/meridian/advice.ts")).href;
+  const src = `
+    import { buildAdvice } from ${JSON.stringify(adviceUrl)};
+    const base = {
+      nifty: 25000, niftyChg: 0, bankNifty: 52000, bankChg: 0, indiaVix: 12, pcr: 1,
+      btc: 100000, btcChg: 0, gold: 70000, goldChg: 0, usdinr: 84, usdinrChg: 0,
+      crude: 70, crudeChg: 0, regime: "Calm", session: "open", asOf: Date.now(), source: "test",
+    };
+    const off = buildAdvice(base, { promoted: false });
+    const spotOff = off.find((c) => c.id === "spot-1");
+    if (!spotOff || /0\.55/.test(spotOff.body) || !/model-backed/i.test(spotOff.body)) {
+      throw new Error("Calm unpromoted: " + spotOff?.body);
+    }
+    const on = buildAdvice(base, { promoted: true });
+    const spotOn = on.find((c) => c.id === "spot-1");
+    if (!spotOn || !/0\.55/.test(spotOn.body)) throw new Error("Calm promoted: " + spotOn?.body);
+    const elevOff = buildAdvice({ ...base, regime: "Elevated" }, { promoted: false }).find((c) => c.id === "spot-1");
+    if (!elevOff || /0\.55/.test(elevOff.body) || !/model-backed/i.test(elevOff.body)) {
+      throw new Error("Elevated unpromoted: " + elevOff?.body);
+    }
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
