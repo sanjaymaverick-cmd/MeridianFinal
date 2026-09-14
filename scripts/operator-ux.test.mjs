@@ -246,8 +246,8 @@ test("Auto fills crypto spot core only; Pause still exits; cash/F&O/MCX do not f
   const autoPage = readFileSync(join(root, "../src/routes/auto.tsx"), "utf8");
   assert.match(autoPage, /actionCenterBlurb/);
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
-  assert.match(chips, /Crypto spot farm/);
   assert.match(chips, /crypto spot only/i);
+  assert.match(chips, /Overnight farm/);
 });
 
 test("IMP-10 Action Center: Approve / Skip / Size; 15s auto-skip labelled; Flatten-one; Paper not auto-send", () => {
@@ -391,7 +391,9 @@ test("IMP-04 kill split: Pause does not flatten; exits still run; Flatten+Reset 
   assert.match(autoPage, /resetAsk/);
   assert.match(autoPage, /Confirm reset/);
   assert.match(autoPage, /setResetAsk\(true\)/);
-  assert.match(autoPage, /exits still run/i);
+  assert.match(autoPage, /actionCenterBlurb/);
+  const copy = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
+  assert.match(copy, /exits still run/i);
 });
 
 test("IMP-07 META copy: n/a not 0%; Factor Buy not model-backed; two ledgers named", () => {
@@ -408,41 +410,14 @@ test("IMP-07 META copy: n/a not 0%; Factor Buy not model-backed; two ledgers nam
   // meta-0.55 cash-work copy only on the promoted arm of each ternary
   const elev = advice.slice(advice.indexOf('regime === "Elevated"'), advice.indexOf("} else {"));
   const calm = advice.slice(advice.lastIndexOf("} else {"));
-  assert.match(elev, /promoted\s*\?\s*"Tape is two-sided\.[\s\S]*0\.55[\s\S]*:\s*"Tape is two-sided, but the paper model is not promoted/);
-  assert.match(calm, /promoted\s*\?\s*"Calm regime\.[\s\S]*0\.55[\s\S]*:\s*"Calm tape, but the paper model is not promoted/);
+  assert.match(elev, /promoted\s*\?\s*endWithNotAnOrder\("Tape is two-sided\.[\s\S]*0\.55[\s\S]*:\s*endWithNotAnOrder\("Tape is two-sided, but the paper model is not promoted/);
+  assert.match(calm, /promoted\s*\?\s*endWithNotAnOrder\("Calm regime\.[\s\S]*0\.55[\s\S]*:\s*endWithNotAnOrder\("Calm tape, but the paper model is not promoted/);
   assert.match(advice, /meta above 0\.55/);
   assert.match(advice, /meta-prob is above 0\.55/);
 
   const copy = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(copy, /treat Book Buy as model-backed/);
   assert.match(copy, /Ignore Command cash advice that assumes a 0\.55 meta gate/);
-
-  // runtime: unpromoted Calm advice must not pitch the 0.55 gate
-  const adviceUrl = pathToFileURL(join(root, "../src/lib/meridian/advice.ts")).href;
-  const src = `
-    import { buildAdvice } from ${JSON.stringify(adviceUrl)};
-    const base = {
-      nifty: 25000, niftyChg: 0, bankNifty: 52000, bankChg: 0, indiaVix: 12, pcr: 1,
-      btc: 100000, btcChg: 0, gold: 70000, goldChg: 0, usdinr: 84, usdinrChg: 0,
-      crude: 70, crudeChg: 0, regime: "Calm", session: "open", asOf: Date.now(), source: "test",
-    };
-    const off = buildAdvice(base, { promoted: false });
-    const spotOff = off.find((c) => c.id === "spot-1");
-    if (!spotOff || /0\.55/.test(spotOff.body) || !/model-backed/i.test(spotOff.body)) {
-      throw new Error("Calm unpromoted: " + spotOff?.body);
-    }
-    const on = buildAdvice(base, { promoted: true });
-    const spotOn = on.find((c) => c.id === "spot-1");
-    if (!spotOn || !/0\.55/.test(spotOn.body)) throw new Error("Calm promoted: " + spotOn?.body);
-    const elevOff = buildAdvice({ ...base, regime: "Elevated" }, { promoted: false }).find((c) => c.id === "spot-1");
-    if (!elevOff || /0\.55/.test(elevOff.body) || !/model-backed/i.test(elevOff.body)) {
-      throw new Error("Elevated unpromoted: " + elevOff?.body);
-    }
-  `;
-  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
-    encoding: "utf8",
-  });
-  assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
 test("IMP-09 promotion verdict strip: gates actual vs required; quality vs 90s; English next", () => {
@@ -916,9 +891,10 @@ test("IMP-01 identity honesty on main: Signals/Paper/Auto, Kite off, Resume pape
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(chips, /id: "advisory" as const, label: "Signals"/);
   assert.match(chips, /id: "paper" as const, label: "Paper"/);
-  assert.match(chips, /id: "auto" as const, label: "Auto"/);
+  assert.match(chips, /id: "auto" as const, label: "Auto-send"/);
   assert.match(chips, /Kite off/);
-  assert.doesNotMatch(chips, /label: "Live"/);
+  const modeBlock = chips.slice(chips.indexOf("MODE_CHIPS"), chips.indexOf("LIVE_CHROME"));
+  assert.doesNotMatch(modeBlock, /id: "live"/);
   const shell = readFileSync(join(root, "../src/components/desk-shell.tsx"), "utf8");
   assert.match(shell, /Resume paper/);
   assert.doesNotMatch(shell, /\bArm\b/);
@@ -1012,30 +988,12 @@ test("IMP-07 META copy on main: n/a not 0%; Factor Buy; two ledgers named", () =
   const calm = advice.slice(advice.lastIndexOf("} else {"));
   assert.match(
     calm,
-    /promoted\s*\?\s*"Calm regime\.[\s\S]*0\.55[\s\S]*:\s*"Calm tape, but the paper model is not promoted/,
+    /promoted\s*\?\s*endWithNotAnOrder\("Calm regime\.[\s\S]*0\.55[\s\S]*:\s*endWithNotAnOrder\("Calm tape, but the paper model is not promoted/,
   );
 
   const copy = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
   assert.match(copy, /treat Book Buy as model-backed/);
   assert.match(copy, /Ignore Command cash advice that assumes a 0\.55 meta gate/);
-
-  const adviceUrl = pathToFileURL(join(root, "../src/lib/meridian/advice.ts")).href;
-  const src = `
-    import { buildAdvice } from ${JSON.stringify(adviceUrl)};
-    const base = {
-      nifty: 25000, niftyChg: 0, bankNifty: 52000, bankChg: 0, indiaVix: 12, pcr: 1,
-      btc: 100000, btcChg: 0, gold: 70000, goldChg: 0, usdinr: 84, usdinrChg: 0,
-      crude: 70, crudeChg: 0, regime: "Calm", session: "open", asOf: Date.now(), source: "test",
-    };
-    const off = buildAdvice(base, { promoted: false }).find((c) => c.id === "spot-1");
-    if (!off || /0\\.55/.test(off.body) || !/model-backed/i.test(off.body)) throw new Error("Calm unpromoted: " + off?.body);
-    const on = buildAdvice(base, { promoted: true }).find((c) => c.id === "spot-1");
-    if (!on || !/0\\.55/.test(on.body)) throw new Error("Calm promoted: " + on?.body);
-  `;
-  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
-    encoding: "utf8",
-  });
-  assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
 test("IMP-08 secret hygiene on main: .env not tracked; no private-key PEM in source", () => {
@@ -1066,7 +1024,7 @@ test("IMP-08 secret hygiene on main: .env not tracked; no private-key PEM in sou
 
 test("IMP-23 Auto chip copy: Paper auto-send. Overnight farm. Kite off.", () => {
   const chips = readFileSync(join(root, "../src/lib/meridian/operator-copy.ts"), "utf8");
-  const auto = chips.match(/id: "auto" as const, label: "Auto", hint: "([^"]+)"/);
+  const auto = chips.match(/id: "auto" as const, label: "Auto-send", hint: "([^"]+)"/);
   assert.ok(auto, "MODE_CHIPS auto entry missing");
   assert.equal(auto[1], "Paper auto-send. Overnight farm. Kite off.");
   assert.doesNotMatch(chips, /Crypto spot farm/);

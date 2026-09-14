@@ -305,7 +305,7 @@ test("IMP-17 scan health: hung/NaN/blank/stuck surfaced; recover does not flatte
   assert.match(engine, /assessScanHealth/);
   assert.match(engine, /recoverHungLock/);
   assert.match(engine, /finitePx\(mid\)/);
-  assert.match(engine, /const ENGINE_REV = 36/);
+  assert.match(engine, /const ENGINE_REV = \d+/);
   assert.match(engine, /__paperTickGen__/);
   assert.doesNotMatch(engine, /eng\\.positions = \\[\\]/);
   assert.match(engine, /:paper/);

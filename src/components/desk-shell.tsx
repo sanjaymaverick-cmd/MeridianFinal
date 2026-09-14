@@ -181,9 +181,11 @@ export function DeskShell({ children }: { children: ReactNode }) {
               {identity.engine}
             </span>
             <span className="rounded border border-border px-1.5 py-0.5">{identity.kite}</span>
-            <Badge tone="neutral" title={LIVE_CHROME.hint} data-live-chrome="locked">
-              {LIVE_CHROME.label} locked
-            </Badge>
+            <span title={LIVE_CHROME.hint} data-live-chrome="locked">
+              <Badge tone="neutral">
+                {LIVE_CHROME.label} locked
+              </Badge>
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Button

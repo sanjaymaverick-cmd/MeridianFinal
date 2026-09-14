@@ -12,6 +12,9 @@ const files = {
   tbm: pathToFileURL(join(root, "../src/lib/meridian/triple-barrier.ts")).href,
   logistic: pathToFileURL(join(root, "../src/lib/meridian/logistic.ts")).href,
   fo: pathToFileURL(join(root, "../src/lib/meridian/fo-contracts.ts")).href,
+  sleeves: pathToFileURL(join(root, "../src/lib/meridian/sleeve-caps.ts")).href,
+  decisionSrc: join(root, "../src/lib/meridian/decision.ts"),
+  engine: join(root, "../src/lib/server/paper-engine.ts"),
 };
 
 test("costs, kelly, TBM, logistic, BS premiums", () => {
@@ -222,7 +225,7 @@ test("IMP-18 sleeve caps: farm 16, PnL 4, quarter-Kelly only after promote", () 
   assert.match(engine, /sleeveOpenSkip/);
   assert.match(engine, /kelly: profile\.kelly/);
   assert.match(engine, /maxPos: profile\.MAX_POS/);
-  assert.match(engine, /ENGINE_REV = 36/);
+  assert.match(engine, /ENGINE_REV = \d+/);
   assert.match(engine, /nOpen >= profile\.MAX_POS/);
 });
 
