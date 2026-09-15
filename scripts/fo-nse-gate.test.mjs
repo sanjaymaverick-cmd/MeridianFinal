@@ -343,3 +343,48 @@ test("nseCashFoOpen: holidays and 09:15–15:30 IST", () => {
   const foSrc = readFileSync(join(root, "../src/lib/meridian/fo-contracts.ts"), "utf8");
   assert.match(foSrc, /NSE equity F&O may paper/);
 });
+
+
+test("IMP-29/30 FO mark feed: session open prefers last; closed stays model", () => {
+  const pathMod = pathToFileURL(join(root, "../src/lib/meridian/quote-path.ts")).href;
+  const src = `
+    import { quotePathOf, nseFoMarkFeed, isModelQuoteFeed } from ${JSON.stringify(pathMod)};
+
+    if (nseFoMarkFeed(true) !== "nse-opt-last") throw new Error("open feed " + nseFoMarkFeed(true));
+    if (nseFoMarkFeed(false) !== "nse-opt-model") throw new Error("closed feed");
+    if (quotePathOf("nse-opt-last") !== "quote:last") throw new Error("last path " + quotePathOf("nse-opt-last"));
+    if (quotePathOf("nse-opt-model") !== "quote:model") throw new Error("model path");
+    if (quotePathOf("ATM model NIFTY x") !== "quote:model") throw new Error("atm model source");
+    if (!isModelQuoteFeed("nse-opt-model")) throw new Error("isModel model");
+    if (!isModelQuoteFeed("ATM model RELIANCE")) throw new Error("isModel atm");
+    if (isModelQuoteFeed("nse-opt-last")) throw new Error("last must not be model");
+    if (isModelQuoteFeed("yahoo")) throw new Error("yahoo not model");
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", src], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+test("IMP-29/30 paper-engine: FO close+sample persist on model/missing mark; prefer last when session open", () => {
+  const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
+  assert.match(engine, /nseFoMarkFeed/);
+  assert.match(engine, /isModelQuoteFeed/);
+  assert.match(engine, /isNseFo/);
+  assert.match(engine, /nse-opt-last/);
+  // Prefer last when session open — do not clobber non-model.
+  assert.match(engine, /do not clobber non-model last while session open/);
+  assert.match(engine, /tag Indian FO marks as last \(not model\)/);
+  // Remint open FO clips when ATM moved (stall fix).
+  assert.match(engine, /keep marks on open Indian FO clips even when ATM strike moved/);
+  // Manage must not skip Indian FO when livePx missing.
+  assert.match(engine, /Indian FO farm must still manage\/time_stop \+ persist samples/);
+  assert.match(engine, /const nseFoClip = isNseFo\(pos\.symbol\)/);
+  assert.match(engine, /!nseFoClip/);
+  // Close path still persists samples.
+  assert.match(engine, /await persistSample\(/);
+  assert.match(engine, /const ENGINE_REV = (?:4[2-9]|[5-9]\d)/);
+  // Money path stays paper.
+  assert.match(engine, /\$\{intent\.reason\}:\$\{pos\.side\}:paper/);
+  assert.doesNotMatch(engine, /:live`/);
+});

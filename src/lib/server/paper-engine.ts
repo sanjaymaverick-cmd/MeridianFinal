@@ -41,7 +41,7 @@ import {
 } from "@/lib/meridian/features";
 import { loadArtefactFromDisk, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
-import { quotePathOf } from "@/lib/meridian/quote-path";
+import { isModelQuoteFeed, nseFoMarkFeed, quotePathOf } from "@/lib/meridian/quote-path";
 import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
 import {
   PRED_FEED,
@@ -71,6 +71,7 @@ import {
   formatFoOption,
   isCryptoFo,
   isFoSymbol,
+  isNseFo,
   isNseHoursOnly,
   cryptoFamily,
   openSkipReason,
@@ -209,7 +210,7 @@ function foWatchSymbols(live: Record<string, number>, feed: Record<string, strin
     if (OPTION_STUBS.has(s)) return false;
     if ((CRYPTO_PERPS as readonly string[]).includes(s)) return true;
     if ((NSE_FUT_CORE as readonly string[]).includes(s)) return true;
-    if (feed[s] === "binance-fut" || feed[s] === "binance-opt" || feed[s] === "nse-opt-model") return true;
+    if (feed[s] === "binance-fut" || feed[s] === "binance-opt" || feed[s] === "nse-opt-model" || feed[s] === "nse-opt-last") return true;
     if (parseFo(s)) return true;
     const u = UNIVERSE.find((x) => x.symbol === s);
     return u?.assetClass === "futures" || u?.assetClass === "options";
@@ -374,7 +375,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 41;
+const ENGINE_REV = 42;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -589,7 +590,10 @@ async function refreshLive(eng: Engine) {
       const isBn = q.source.startsWith("Binance");
       const stale = !clockNow.openSession && !isBn;
       if (stale && isCryptoFo(sym)) continue;
-      putLive(eng, sym, q.last, q.source, stale, {
+      // IMP-29: while NSE session open, tag Indian FO marks as last (not model).
+      let feed = q.source;
+      if (clockNow.openSession && isNseFo(sym) && isModelQuoteFeed(feed)) feed = nseFoMarkFeed(true);
+      putLive(eng, sym, q.last, feed, stale, {
         expiry: q.expiry,
         strike: q.strike,
         right: q.right,
@@ -615,17 +619,60 @@ async function refreshLive(eng: Engine) {
     const sigma = Math.max(0.08, vix / 100);
     for (const right of ["CE", "PE"] as const) {
       const c = formatFoOption(und, exp, strike, right);
-      if (eng.live[c.symbol] > 0 && (eng.liveFeed[c.symbol] ?? "").startsWith("binance")) continue;
+      const existingFeed = eng.liveFeed[c.symbol] ?? "";
+      if ((eng.live[c.symbol] ?? 0) > 0) {
+        if (existingFeed.startsWith("binance")) continue;
+        // IMP-29: do not clobber non-model last while session open.
+        if (clockNow.openSession && !isModelQuoteFeed(existingFeed)) continue;
+      }
       const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
       if (und === "NIFTY" && right === "CE") atmCall = prem;
       if (und === "NIFTY" && right === "PE") atmPut = prem;
-      putLive(eng, c.symbol, prem, "nse-opt-model", !clockNow.openSession, {
+      const markFeed = nseFoMarkFeed(clockNow.openSession);
+      putLive(eng, c.symbol, prem, markFeed, !clockNow.openSession, {
         expiry: c.expiry,
         strike,
         right,
         contract: c.symbol,
       });
     }
+  }
+
+  // IMP-30: keep marks on open Indian FO clips even when ATM strike moved.
+  for (const pos of eng.positions) {
+    if (!isNseFo(pos.symbol)) continue;
+    if ((eng.live[pos.symbol] ?? 0) > 0) continue;
+    const fo = parseFo(pos.symbol);
+    const underlier = fo?.underlier;
+    const strike = fo?.strike ?? pos.strike;
+    const right = (fo?.right || pos.right) as "CE" | "PE" | "FUT" | undefined;
+    const markFeed = nseFoMarkFeed(clockNow.openSession);
+    const delayed = !clockNow.openSession;
+    const meta = prevFo[pos.symbol] ?? {
+      expiry: fo?.expiry || pos.expiry,
+      strike: strike ?? undefined,
+      right,
+      contract: pos.symbol,
+    };
+    if (underlier && strike && strike > 0 && (right === "CE" || right === "PE")) {
+      const spot = eng.live[underlier];
+      if (spot > 0) {
+        const expIso = fo?.expiry || pos.expiry || isoDate(nextNseWeeklyExpiry());
+        const days = daysToExpiry(expIso);
+        const vix = eng.live.INDIAVIX ?? SNAPSHOT.INDIAVIX ?? 11.2;
+        const sigma = Math.max(0.08, underlier.includes("NIFTY") ? vix / 100 : 0.28);
+        const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
+        putLive(eng, pos.symbol, prem, markFeed, delayed, {
+          expiry: expIso,
+          strike,
+          right,
+          contract: pos.symbol,
+        });
+        continue;
+      }
+    }
+    const fallback = prevLive[pos.symbol] ?? pos.entryPrice;
+    if (fallback > 0) putLive(eng, pos.symbol, fallback, markFeed, delayed, meta);
   }
   if (atmCall > 0 && atmPut > 0) eng.pcr = atmPut / atmCall;
 
@@ -755,7 +802,9 @@ async function tickUnlocked() {
         pos.quoteLabel === "delayed" ||
         pos.quoteLabel === "model" ||
         ((feed.includes("model") || feed === "nse-opt-model") && !feed.startsWith("binance")));
-    if (!(livePx > 0) && !sessionFlat && !staleCrypto) {
+    // IMP-30: Indian FO farm must still manage/time_stop + persist samples when mark missing/model.
+    const nseFoClip = isNseFo(pos.symbol);
+    if (!(livePx > 0) && !sessionFlat && !staleCrypto && !nseFoClip) {
       still.push(pos);
       continue;
     }

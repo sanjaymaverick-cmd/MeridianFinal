@@ -11,3 +11,17 @@ export function quotePathOf(feed: string | undefined | null): string {
   if (f.startsWith("yahoo") || f === "derived") return "quote:yahoo";
   return "quote:last";
 }
+
+/** True when feed names an ATM/model option mark (not exchange last). */
+export function isModelQuoteFeed(feed: string | undefined | null): boolean {
+  const f = String(feed ?? "").toLowerCase();
+  return f.includes("model") || f === "nse-opt-model";
+}
+
+/**
+ * Indian FO mark feed while paper farming.
+ * Session open → prefer last path (quote:last). Session closed → model (quote:model).
+ */
+export function nseFoMarkFeed(sessionOpen: boolean): string {
+  return sessionOpen ? "nse-opt-last" : "nse-opt-model";
+}
