@@ -1,3 +1,4 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getSql } from "@/lib/db";
@@ -42,7 +43,7 @@ import {
 import { loadArtefactFromDisk, loadSampleExcludeIds, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
 import { isExcludedSample } from "@/lib/meridian/sample-exclude";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
-import { isModelQuoteFeed, nseFoMarkFeed, quotePathOf } from "@/lib/meridian/quote-path";
+import { isModelQuoteFeed, nseFoMarkFeed, quoteLabelForFeed, quotePathOf } from "@/lib/meridian/quote-path";
 import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
 import {
   PRED_FEED,
@@ -82,8 +83,13 @@ import {
   isoDate,
   nextFridayExpiry,
   nextNseWeeklyExpiry,
+  markCanonicalFo,
   parseFo,
 } from "@/lib/meridian/fo-contracts";
+import { foOptionQtySkip } from "@/lib/meridian/fo-size";
+import { istCalendarDay, reconcileDailyPnl, type DailyBook } from "@/lib/meridian/daily-book";
+import { fitSkipReason } from "@/lib/meridian/fit-eligible";
+import { bootFromHeartbeat, bootFromSavedSession, freshBookBoot } from "@/lib/meridian/boot-session";
 import { formatIstStamp } from "@/lib/utils";
 import {
   FARM_CORE,
@@ -268,9 +274,7 @@ function proposeWatch(live: Record<string, number>, feed: Record<string, string>
 }
 
 function quoteLabelOf(feed: string | undefined, delayed: boolean | undefined): QuoteLabel {
-  if (delayed) return "delayed";
-  if (feed?.includes("model") || feed === "nse-opt-model") return "model";
-  return "live";
+  return quoteLabelForFeed(feed, delayed);
 }
 
 function quoteBits(feed: string | undefined, delayed: boolean | undefined) {
@@ -325,6 +329,70 @@ function featuresFor(eng: Engine, sym: string, u: (typeof UNIVERSE)[number], sco
 const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const HEARTBEAT = path.join(DATA_DIR, "paper-heartbeat.json");
+/** Outside the PGLite dir so a reseat cannot wipe the IST day. Not committed. */
+const DAILY_FILE = path.join(DATA_DIR, "paper-daily.json");
+/** Last operator mode. Outside PGLite. Not committed. Fresh book if missing. */
+const SESSION_FILE = path.join(DATA_DIR, "paper-session.json");
+
+function readDailyFile(): DailyBook | null {
+  try {
+    const o = JSON.parse(readFileSync(DAILY_FILE, "utf8")) as { ist?: unknown; dailyPnl?: unknown };
+    if (typeof o.ist === "string" && Number.isFinite(Number(o.dailyPnl))) {
+      return { ist: o.ist, dailyPnl: Number(o.dailyPnl) };
+    }
+  } catch {
+    /* missing on first boot */
+  }
+  return null;
+}
+
+function writeDailyFile(book: DailyBook) {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(DAILY_FILE, JSON.stringify(book));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readSessionRaw(): { mode?: unknown; killed?: unknown } | null {
+  try {
+    return JSON.parse(readFileSync(SESSION_FILE, "utf8")) as { mode?: unknown; killed?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function readHeartbeatRaw(): { mode?: unknown; killed?: unknown; ts?: unknown } | null {
+  try {
+    return JSON.parse(readFileSync(HEARTBEAT, "utf8")) as { mode?: unknown; killed?: unknown; ts?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist mode so a later process restart does not Halt a running auto book. */
+function writeSessionFile(eng: { mode: PaperBook["mode"]; killed: boolean }) {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(SESSION_FILE, JSON.stringify({ mode: eng.mode, killed: eng.killed }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** IMP-37 / IMP-35: IST roll, and never replace a same-day loss with 0. */
+function persistDaily(eng: Engine, now = Date.now()) {
+  const next = reconcileDailyPnl({
+    nowMs: now,
+    file: readDailyFile(),
+    memoryPnl: eng.dailyPnl,
+    memoryIst: eng.dailyIst ?? null,
+  });
+  eng.dailyPnl = next.dailyPnl;
+  eng.dailyIst = next.ist;
+  writeDailyFile(next);
+}
 
 export type PaperBook = {
   mode: "advisory" | "paper" | "auto";
@@ -370,6 +438,8 @@ type Engine = PaperBook & {
   delayed: Record<string, boolean>;
   foMeta: Record<string, { expiry?: string; strike?: number; right?: string; contract?: string }>;
   predBtcOpen: Record<number, number>;
+  /** IST day the in-memory dailyPnl was booked. Unset on a cold engine. */
+  dailyIst?: string;
 };
 
 const g = globalThis as typeof globalThis & {
@@ -379,7 +449,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 43;
+const ENGINE_REV = 46;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -663,8 +733,9 @@ async function refreshLive(eng: Engine) {
       const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
       if (und === "NIFTY" && right === "CE") atmCall = prem;
       if (und === "NIFTY" && right === "PE") atmPut = prem;
-      const markFeed = nseFoMarkFeed(clockNow.openSession);
-      putLive(eng, c.symbol, prem, markFeed, !clockNow.openSession, {
+      // IMP-40: this mint is Black–Scholes, so it is model — not painted as last.
+      // A book last (nse-opt-last) is kept by the clobber guard above while NSE is open.
+      putLive(eng, c.symbol, prem, "nse-opt-model", false, {
         expiry: c.expiry,
         strike,
         right,
@@ -696,10 +767,17 @@ async function refreshLive(eng: Engine) {
         const days = daysToExpiry(expIso);
         const vix = eng.live.INDIAVIX ?? SNAPSHOT.INDIAVIX ?? 11.2;
         const sigma = Math.max(0.08, underlier.includes("NIFTY") ? vix / 100 : 0.28);
-        const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
-        putLive(eng, pos.symbol, prem, markFeed, delayed, {
+        const marked = markCanonicalFo({
+          spot,
+          contractStrike: strike,
+          atmStrike: atmStrike(spot, underlier),
+          sigma,
+          days,
+          right,
+        });
+        putLive(eng, pos.symbol, marked.premium, marked.feed, false, {
           expiry: expIso,
-          strike,
+          strike: marked.strike,
           right,
           contract: pos.symbol,
         });
@@ -758,6 +836,8 @@ async function tick() {
     g.__paperTickLockSince__ = 0;
     const hung = g.__meridianPaper?.eng;
     if (hung) {
+      // IMP-35: old bug set daily_loss / dailyPnl to 0 here. Keep the figure.
+      // Do not roll the IST day in recovery. Pause does not roll either. Do not flatten.
       hung.scanHealth = assessScanHealth({
         now,
         lastTick: hung.lastTick,
@@ -802,6 +882,7 @@ async function tickUnlocked() {
   if (!slot) return;
   const eng = slot.eng;
   eng.ticksRun += 1;
+  persistDaily(eng);
 
   try {
     await refreshLive(eng);
@@ -976,6 +1057,7 @@ async function tickUnlocked() {
         positions: [],
         farmTail: true,
       });
+      // IMP-39: an open FO clip over the 1% cap is not force-flattened.
       if (lev === "no_leverage" || lev === "malformed_option") drop.push(p);
       else keep.push(p);
     }
@@ -1086,6 +1168,8 @@ async function tickUnlocked() {
       if (!(mid > 0)) return "bad_price";
       const px = fillFromMid(mid, "buy", clsFor(sym, eng));
       const qty = qtyFor(sym, px, FARM_PROFILE.SIZE_FLOOR, eng.ticks);
+      const foSkip = foOptionQtySkip({ symbol: sym, qty, premiumInr: px, bookInr: PAPER_BUDGET });
+      if (foSkip) return foSkip;
       return segmentOpenSkip({
         symbol: sym,
         feed: eng.liveFeed[sym],
@@ -1106,7 +1190,10 @@ async function tickUnlocked() {
       scan.push({
         symbol: `${sleeve}:${row.sym}`,
         action,
-        reason: `${sleeve}:${skip ?? row.intent.reason}:paper`,
+        reason:
+          skip && skip.endsWith(":paper")
+            ? `${sleeve}:${skip}`
+            : `${sleeve}:${skip ?? row.intent.reason}:paper`,
         metaProb: row.intent.metaProb,
         px: row.px,
         sleeve,
@@ -1226,6 +1313,7 @@ async function tickUnlocked() {
     liveCount: Object.keys(eng.live).length,
     dailyPnl: eng.dailyPnl,
   });
+  persistDaily(eng);
   try {
     await mkdir(DATA_DIR, { recursive: true });
     await writeFile(
@@ -1271,10 +1359,16 @@ export function startPaperEngine() {
     return;
   }
   if (g.__meridianPaper) clearInterval(g.__meridianPaper.timer);
+  const existed = !!g.__meridianPaper?.eng;
   const eng = g.__meridianPaper?.eng ?? emptyEngine();
-  if (!g.__meridianPaper?.eng) {
-    eng.mode = "advisory";
-    eng.killed = true;
+  if (!existed) {
+    // Fresh book stays paused. A saved auto/paper session is restored. Never Arm.
+    const saved = readSessionRaw();
+    const boot = saved
+      ? bootFromSavedSession(saved)
+      : (bootFromHeartbeat(readHeartbeatRaw(), Date.now()) ?? freshBookBoot());
+    eng.mode = boot.mode;
+    eng.killed = boot.killed;
   }
   eng.liveFeed ??= {};
   eng.delayed ??= {};
@@ -1290,6 +1384,9 @@ export function startPaperEngine() {
   eng.heatPnl ??= 0;
   eng.farmTail ??= true;
   eng.quality ??= { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 };
+  if (existed && !eng.dailyIst && eng.dailyPnl !== 0) eng.dailyIst = istCalendarDay(Date.now());
+  persistDaily(eng);
+  writeSessionFile(eng);
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));
   }, 2500);
@@ -1368,6 +1465,8 @@ export function setEngineFlags(patch: { mode?: PaperBook["mode"]; killed?: boole
   const e = getEngine();
   if (patch.mode) e.mode = patch.mode;
   if (patch.killed != null) e.killed = patch.killed;
+  // Pause / Resume paper writes the session. It does not roll dailyPnl.
+  writeSessionFile(e);
   return snapshotBook();
 }
 
@@ -1377,6 +1476,11 @@ export function resetEngine() {
   const extraWatch = prev?.eng.extraWatch ?? [];
   const quality = prev?.eng.quality;
   const eng = emptyEngine();
+  const ist = istCalendarDay(Date.now());
+  eng.dailyIst = ist;
+  eng.dailyPnl = 0;
+  writeDailyFile({ ist, dailyPnl: 0 });
+  writeSessionFile(eng);
   eng.mode = prev?.eng.mode ?? "advisory";
   eng.killed = prev?.eng.killed ?? true;
   eng.blocked = blocked;
@@ -1776,6 +1880,8 @@ function openNow(
   const px = fillFromMid(mid, side === "long" ? "buy" : "sell", cls);
   const qty = qtyIn && qtyIn > 0 ? qtyIn : qtyFor(symbol, px, sizePct, e.ticks);
   if (qty <= 0) return "zero_size";
+  const foSkip = foOptionQtySkip({ symbol, qty, premiumInr: px, bookInr: PAPER_BUDGET });
+  if (foSkip) return foSkip;
   const extra = foFields(symbol, e.foMeta[symbol]);
   const qbits = quoteBits(e.liveFeed[symbol], e.delayed[symbol]);
   const pos: Position = {
@@ -1887,9 +1993,16 @@ export async function exportFitSamplesDownload(limit = 100_000): Promise<FitSamp
         label_barrier?: number;
         barrier?: string;
         costBps?: number;
+        quoteLabel?: string;
+        fwdRetGross?: number;
+        tsClose?: number;
+        closed_ist?: string;
+        id?: string;
+        usd_inr?: number;
       };
       if (r.sleeve === PRED_SLEEVE || isPredSymbol(String(r.symbol ?? ""))) continue;
       if (isExcludedSample(r, excludeIds)) continue;
+      if (fitSkipReason(r, {})) continue;
       const hold = Number(r.hold_sec ?? r.holdSec ?? 0);
       const reason = String(r.reason_close ?? r.reasonClose ?? "");
       const fwd = Number(r.fwd_ret ?? r.fwdRet ?? 0);

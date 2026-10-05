@@ -19,6 +19,19 @@ export function isModelQuoteFeed(feed: string | undefined | null): boolean {
 }
 
 /**
+ * IMP-40: a Black–Scholes / model feed is labelled `model`, never painted as last.
+ * QuoteLabel `"live"` stays the enum for a not-delayed last. Do not rename it.
+ */
+export function quoteLabelForFeed(
+  feed: string | undefined | null,
+  delayed: boolean | undefined,
+): "live" | "delayed" | "model" {
+  if (isModelQuoteFeed(feed)) return "model";
+  if (delayed) return "delayed";
+  return "live";
+}
+
+/**
  * Indian FO mark feed while paper farming.
  * Session open → prefer last path (quote:last). Session closed → model (quote:model).
  */

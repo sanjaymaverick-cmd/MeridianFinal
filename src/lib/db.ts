@@ -1,4 +1,8 @@
 /** Which database backend is active. */
+import path from "node:path";
+import { dailyFileOutsidePglite } from "@/lib/meridian/daily-book";
+import { meridianDataDir } from "@/lib/server/paths";
+
 export type DbSource = "neon" | "pglite";
 
 // An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
@@ -131,6 +135,12 @@ async function openPglite(dataDir: string | undefined) {
   try {
     return await boot(dataDir);
   } catch (err) {
+    const dailyFile = path.join(meridianDataDir(), "paper-daily.json");
+    // IMP-35: reseat moves the PGLite dir only. Refusing if that dir holds the IST day book.
+    if (!dailyFileOutsidePglite(dailyFile, dataDir)) {
+      console.error("[db] PGLite reseat would take paper-daily.json with it. Left the dir in place.");
+      throw err;
+    }
     const dest = `${dataDir.replace(/[\\/]+$/, "")}-corrupt-${pgliteCorruptStamp()}`;
     const { rename } = await import("node:fs/promises");
     await rename(dataDir, dest);
