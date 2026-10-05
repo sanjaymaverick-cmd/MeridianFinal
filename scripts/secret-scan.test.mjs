@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   isBannedPath,
   scanText,
   scanPathList,
+  scanDirectory,
   runScan,
 } from "./secret-scan.mjs";
 
@@ -61,6 +65,17 @@ test("IMP-08 scanPathList reports banned path without reading content", () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0].rule, "banned-path");
   assert.equal(findings[0].path, ".env");
+});
+
+test("IMP-08 walk: gitless tree reports .env path and does not echo the secret", () => {
+  const dir = mkdtempSync(join(tmpdir(), "imp08-walk-"));
+  const secret = "super-secret-value-not-in-output";
+  writeFileSync(join(dir, ".env"), "KITE_API_SECRET=" + secret + "\n");
+  writeFileSync(join(dir, "note.txt"), "hello\n");
+  const findings = scanDirectory(dir);
+  rmSync(dir, { recursive: true, force: true });
+  assert.ok(findings.some((f) => f.path === ".env" && f.rule === "banned-path"));
+  assert.equal(JSON.stringify(findings).includes(secret), false);
 });
 
 test("IMP-08 repo tree is currently clean", () => {

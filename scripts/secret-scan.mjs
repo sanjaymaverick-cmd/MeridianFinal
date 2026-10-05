@@ -13,7 +13,7 @@
  *   node scripts/secret-scan.mjs --diff A...B
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -114,6 +114,58 @@ export function scanPathList(paths, { readFile = defaultRead } = {}) {
     findings.push(...scanText(p, text));
   }
   return findings;
+}
+
+const WALK_SKIP = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "coverage",
+  "release",
+  "pglite",
+]);
+
+/** Relative file paths under absRoot. Skips VCS, deps, and the PGLite dir. */
+export function listWalkFiles(absRoot) {
+  const out = [];
+  const walk = (dir, rel) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (WALK_SKIP.has(ent.name)) continue;
+      const child = rel ? `${rel}/${ent.name}` : ent.name;
+      const abs = join(dir, ent.name);
+      if (ent.isDirectory()) walk(abs, child);
+      else if (ent.isFile()) out.push(child.replace(/\\/g, "/"));
+    }
+  };
+  walk(absRoot, "");
+  return out;
+}
+
+/**
+ * IMP-08 follow-up: scan a tree that is not `git ls-files`
+ * (a gitless copy, or an untracked live desk). Findings are paths and rules only.
+ */
+export function scanDirectory(absRoot) {
+  const rels = listWalkFiles(absRoot);
+  return scanPathList(rels, {
+    readFile(rel) {
+      const abs = join(absRoot, rel);
+      if (!existsSync(abs)) return null;
+      try {
+        const buf = readFileSync(abs);
+        if (buf.includes(0)) return null;
+        return buf.toString("utf8");
+      } catch {
+        return null;
+      }
+    },
+  });
 }
 
 function defaultRead(rel) {
@@ -246,10 +298,18 @@ function formatFindings(findings) {
 export function main(argv = process.argv.slice(2)) {
   let mode = "tree";
   let diffRange;
+  let walkRoot;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--ci") mode = "ci";
-    else if (a === "--diff") {
+    else if (a === "--walk") {
+      mode = "walk";
+      walkRoot = argv[++i];
+      if (!walkRoot) {
+        console.error("secret-scan: --walk requires a directory");
+        return 2;
+      }
+    } else if (a === "--diff") {
       mode = "diff";
       diffRange = argv[++i];
       if (!diffRange) {
@@ -257,8 +317,8 @@ export function main(argv = process.argv.slice(2)) {
         return 2;
       }
     } else if (a === "--help" || a === "-h") {
-      console.log(`Usage: node scripts/secret-scan.mjs [--ci | --diff RANGE]
-Fails (exit 1) if secrets/keys/.env appear in the tracked tree or PR diff.
+      console.log(`Usage: node scripts/secret-scan.mjs [--ci | --diff RANGE | --walk DIR]
+Fails (exit 1) if secrets/keys/.env appear in the tracked tree, PR diff, or a walked directory.
 Never stages or prints secret values.`);
       return 0;
     } else {
@@ -269,7 +329,7 @@ Never stages or prints secret values.`);
 
   let findings;
   try {
-    findings = runScan({ mode, diffRange });
+    findings = mode === "walk" ? scanDirectory(walkRoot) : runScan({ mode, diffRange });
   } catch (err) {
     console.error(`secret-scan: ${err.message || err}`);
     return 2;
@@ -287,7 +347,9 @@ Never stages or prints secret values.`);
       ? "secret-scan: clean (tree + diff)"
       : mode === "diff"
         ? "secret-scan: clean (diff)"
-        : "secret-scan: clean (tree)",
+        : mode === "walk"
+          ? "secret-scan: clean (walk)"
+          : "secret-scan: clean (tree)",
   );
   return 0;
 }
