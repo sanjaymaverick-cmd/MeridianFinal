@@ -325,6 +325,6 @@ test("holiday session gate + 25% farm segment caps", () => {
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const engine = readFileSync(files.engine, "utf8");
   assert.match(engine, /segmentOpenSkip/);
-  assert.match(engine, /const ENGINE_REV = 41/);
+  assert.match(engine, /const ENGINE_REV = (?:4[1-9]|[5-9]\d)/);
   assert.doesNotMatch(engine, /:live`/);
 });

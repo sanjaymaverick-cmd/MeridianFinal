@@ -7,12 +7,24 @@ import { FEATURE_KEYS, emptyFeatures, packFeatures, type FeatureVec } from "@/li
 import { FIT_MIN_N } from "@/lib/meridian/kelly";
 import { fitLogistic, hitRate, predictRow, rocAuc, timeSplit } from "@/lib/meridian/logistic";
 import { isPredSample } from "@/lib/meridian/pred-orb";
+import { SAMPLE_EXCLUDE_FILE, isExcludedSample, parseExcludeList } from "@/lib/meridian/sample-exclude";
 
 const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const ARTEFACT_PATH = path.join(DATA_DIR, "meta-artefact.json");
+/** IMP-38: optional id list of rows to skip at fit time (samples jsonl is never rewritten). */
+const EXCLUDE_PATH = process.env.MERIDIAN_SAMPLE_EXCLUDE || path.join(DATA_DIR, SAMPLE_EXCLUDE_FILE);
+
+export async function loadSampleExcludeIds(excludePath = EXCLUDE_PATH): Promise<Set<string>> {
+  try {
+    return parseExcludeList(await readFile(excludePath, "utf8"));
+  } catch {
+    return new Set();
+  }
+}
 
 type SampleRow = {
+  id?: string;
   label?: number;
   fwdRet?: number;
   fwd_ret?: number;
@@ -75,7 +87,8 @@ export type SampleQuality = {
   avgHoldSec: number;
 };
 
-export async function sampleQuality(jsonlPath = JSONL): Promise<SampleQuality> {
+export async function sampleQuality(jsonlPath = JSONL, excludePath = EXCLUDE_PATH): Promise<SampleQuality> {
+  const excludeIds = await loadSampleExcludeIds(excludePath);
   let txt = "";
   try {
     txt = await readFile(jsonlPath, "utf8");
@@ -88,13 +101,14 @@ export async function sampleQuality(jsonlPath = JSONL): Promise<SampleQuality> {
   let holdSum = 0;
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
-    let row: { hold_sec?: number; holdSec?: number; reason_close?: string; reasonClose?: string; sleeve?: string; symbol?: string; reasonOpen?: string };
+    let row: { id?: string; hold_sec?: number; holdSec?: number; reason_close?: string; reasonClose?: string; sleeve?: string; symbol?: string; reasonOpen?: string };
     try {
       row = JSON.parse(line) as typeof row;
     } catch {
       continue;
     }
     if (isPredSample(row)) continue;
+    if (isExcludedSample(row, excludeIds)) continue;
     n += 1;
     const hold = Number(row.hold_sec ?? row.holdSec);
     if (Number.isFinite(hold)) {
@@ -107,7 +121,8 @@ export async function sampleQuality(jsonlPath = JSONL): Promise<SampleQuality> {
   return { n, timeStopN, qualityHoldN, avgHoldSec: n ? holdSum / n : 0 };
 }
 
-export async function retrainFromJsonl(jsonlPath = JSONL): Promise<ArtefactStatus | null> {
+export async function retrainFromJsonl(jsonlPath = JSONL, excludePath = EXCLUDE_PATH): Promise<ArtefactStatus | null> {
+  const excludeIds = await loadSampleExcludeIds(excludePath);
   let txt = "";
   try {
     txt = await readFile(jsonlPath, "utf8");
@@ -120,6 +135,8 @@ export async function retrainFromJsonl(jsonlPath = JSONL): Promise<ArtefactStatu
     try {
       const row = JSON.parse(line) as SampleRow;
       if (isPredSample(row)) continue;
+      // IMP-38: short-root option rows + exclude-list ids never reach the fit (gates unchanged).
+      if (isExcludedSample(row, excludeIds)) continue;
       rows.push(row);
     } catch {
       /* skip */

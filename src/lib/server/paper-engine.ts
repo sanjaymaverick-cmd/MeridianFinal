@@ -22,7 +22,7 @@ import {
 } from "@/lib/meridian/decision";
 import { getArtefact, predictMetaProb } from "@/lib/meridian/artefact";
 import { costClassOf, economicLabel, fillFromMid, netFwdRet, netPnlUsd, roundTripBps, type CostClass } from "@/lib/meridian/costs";
-import { closeClipFields, paperReason } from "@/lib/meridian/paper-sample";
+import { USDINR_FALLBACK, closeClipFields, paperReason } from "@/lib/meridian/paper-sample";
 import {
   labelFitSampleRow,
   summarizeFitDownload,
@@ -39,9 +39,10 @@ import {
   type FeatureVec,
   type TapeStat,
 } from "@/lib/meridian/features";
-import { loadArtefactFromDisk, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
+import { loadArtefactFromDisk, loadSampleExcludeIds, retrainFromJsonl, sampleQuality, type SampleQuality } from "@/lib/server/retrain";
+import { isExcludedSample } from "@/lib/meridian/sample-exclude";
 import { getLiveBook, refreshBinanceAnchors } from "@/lib/server/quotes";
-import { quotePathOf } from "@/lib/meridian/quote-path";
+import { isModelQuoteFeed, nseFoMarkFeed, quotePathOf } from "@/lib/meridian/quote-path";
 import { fetchBtc5mQuote, fetchBtc5mQuoteAt, peekPredCache } from "@/lib/server/polymarket";
 import {
   PRED_FEED,
@@ -71,6 +72,10 @@ import {
   formatFoOption,
   isCryptoFo,
   isFoSymbol,
+  isMalformedOption,
+  isShortRootOption,
+  contractKeyOf,
+  isNseFo,
   isNseHoursOnly,
   cryptoFamily,
   openSkipReason,
@@ -209,7 +214,7 @@ function foWatchSymbols(live: Record<string, number>, feed: Record<string, strin
     if (OPTION_STUBS.has(s)) return false;
     if ((CRYPTO_PERPS as readonly string[]).includes(s)) return true;
     if ((NSE_FUT_CORE as readonly string[]).includes(s)) return true;
-    if (feed[s] === "binance-fut" || feed[s] === "binance-opt" || feed[s] === "nse-opt-model") return true;
+    if (feed[s] === "binance-fut" || feed[s] === "binance-opt" || feed[s] === "nse-opt-model" || feed[s] === "nse-opt-last") return true;
     if (parseFo(s)) return true;
     const u = UNIVERSE.find((x) => x.symbol === s);
     return u?.assetClass === "futures" || u?.assetClass === "options";
@@ -374,7 +379,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 41;
+const ENGINE_REV = 43;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -432,6 +437,34 @@ function qtyFor(sym: string, px: number, sizePct: number, ticks: Record<string, 
 
 function pnlOf(pos: Position, px: number) {
   return netPnlUsd(pos.entryPrice, px, pos.qty, pos.side);
+}
+
+/** IMP-38: quote currency of a name's price (INR for NSE cash/F&O/MCX, USD for crypto). */
+function quoteCcyOf(sym: string, px: number): "INR" | "USD" | "FX" {
+  if (isNseFo(sym) && !isCryptoFo(sym)) return "INR";
+  const u = UNIVERSE.find((x) => x.symbol === sym) ?? nameStub(sym, px);
+  if (u?.quote === "INR") return "INR";
+  if (u?.quote === "FX") return "FX";
+  return "USD";
+}
+
+function usdInrOf(eng: { ticks: Record<string, number>; live: Record<string, number> }): number {
+  const v = eng.ticks.USDINR ?? eng.live.USDINR ?? USDINR_FALLBACK;
+  return v > 0 ? v : USDINR_FALLBACK;
+}
+
+/**
+ * IMP-38: close-time F&O tags come from the contract that was opened
+ * (canonical symbol, else the position's own open-time expiry/strike/right),
+ * never from whatever strike is ATM at close.
+ */
+function foFieldsForPos(pos: Position, meta?: { expiry?: string; strike?: number; right?: string; contract?: string }) {
+  const parsed = parseFo(pos.symbol);
+  return {
+    expiry: parsed?.expiry || pos.expiry || meta?.expiry,
+    strike: parsed?.strike ?? pos.strike ?? meta?.strike,
+    right: parsed?.right || pos.right || meta?.right,
+  };
 }
 
 async function persistFill(f: Fill, metaProb: number, pnl: number | null) {
@@ -586,10 +619,16 @@ async function refreshLive(eng: Engine) {
       if (!(q.last > 0) || q.source === "snapshot" || q.source === "empty") continue;
       const alreadyBn = (eng.liveFeed[sym] ?? "").startsWith("binance");
       if (alreadyBn) continue;
+      // IMP-38: NIFTYCE / HDFCBANKPE etc. are UI ATM aliases (mark follows today's ATM strike).
+      // Never put them on the engine tape; their canonical contract is quoted under its own name.
+      if (isShortRootOption(sym)) continue;
       const isBn = q.source.startsWith("Binance");
       const stale = !clockNow.openSession && !isBn;
       if (stale && isCryptoFo(sym)) continue;
-      putLive(eng, sym, q.last, q.source, stale, {
+      // IMP-29: while NSE session open, tag Indian FO marks as last (not model).
+      let feed = q.source;
+      if (clockNow.openSession && isNseFo(sym) && isModelQuoteFeed(feed)) feed = nseFoMarkFeed(true);
+      putLive(eng, sym, q.last, feed, stale, {
         expiry: q.expiry,
         strike: q.strike,
         right: q.right,
@@ -615,17 +654,60 @@ async function refreshLive(eng: Engine) {
     const sigma = Math.max(0.08, vix / 100);
     for (const right of ["CE", "PE"] as const) {
       const c = formatFoOption(und, exp, strike, right);
-      if (eng.live[c.symbol] > 0 && (eng.liveFeed[c.symbol] ?? "").startsWith("binance")) continue;
+      const existingFeed = eng.liveFeed[c.symbol] ?? "";
+      if ((eng.live[c.symbol] ?? 0) > 0) {
+        if (existingFeed.startsWith("binance")) continue;
+        // IMP-29: do not clobber non-model last while session open.
+        if (clockNow.openSession && !isModelQuoteFeed(existingFeed)) continue;
+      }
       const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
       if (und === "NIFTY" && right === "CE") atmCall = prem;
       if (und === "NIFTY" && right === "PE") atmPut = prem;
-      putLive(eng, c.symbol, prem, "nse-opt-model", !clockNow.openSession, {
+      const markFeed = nseFoMarkFeed(clockNow.openSession);
+      putLive(eng, c.symbol, prem, markFeed, !clockNow.openSession, {
         expiry: c.expiry,
         strike,
         right,
         contract: c.symbol,
       });
     }
+  }
+
+  // IMP-30: keep marks on open Indian FO clips even when ATM strike moved.
+  for (const pos of eng.positions) {
+    if (!isNseFo(pos.symbol)) continue;
+    if ((eng.live[pos.symbol] ?? 0) > 0) continue;
+    const fo = parseFo(pos.symbol);
+    const underlier = fo?.underlier;
+    const strike = fo?.strike ?? pos.strike;
+    const right = (fo?.right || pos.right) as "CE" | "PE" | "FUT" | undefined;
+    const markFeed = nseFoMarkFeed(clockNow.openSession);
+    const delayed = !clockNow.openSession;
+    const meta = prevFo[pos.symbol] ?? {
+      expiry: fo?.expiry || pos.expiry,
+      strike: strike ?? undefined,
+      right,
+      contract: pos.symbol,
+    };
+    if (underlier && strike && strike > 0 && (right === "CE" || right === "PE")) {
+      const spot = eng.live[underlier];
+      if (spot > 0) {
+        const expIso = fo?.expiry || pos.expiry || isoDate(nextNseWeeklyExpiry());
+        const days = daysToExpiry(expIso);
+        const vix = eng.live.INDIAVIX ?? SNAPSHOT.INDIAVIX ?? 11.2;
+        const sigma = Math.max(0.08, underlier.includes("NIFTY") ? vix / 100 : 0.28);
+        const prem = bsPremium(spot, strike, sigma, days, right, 0.065);
+        putLive(eng, pos.symbol, prem, markFeed, delayed, {
+          expiry: expIso,
+          strike,
+          right,
+          contract: pos.symbol,
+        });
+        continue;
+      }
+    }
+    const fallback = prevLive[pos.symbol] ?? pos.entryPrice;
+    if (fallback > 0) putLive(eng, pos.symbol, fallback, markFeed, delayed, meta);
   }
   if (atmCall > 0 && atmPut > 0) eng.pcr = atmPut / atmCall;
 
@@ -739,6 +821,11 @@ async function tickUnlocked() {
       still.push(pos);
       continue;
     }
+    // IMP-38: legacy short-root clips are closed by the malformed_option drop below, never sampled.
+    if (isMalformedOption(pos.symbol)) {
+      still.push(pos);
+      continue;
+    }
     const livePx = eng.live[pos.symbol];
     const u = UNIVERSE.find((x) => x.symbol === pos.symbol);
     const feed = eng.liveFeed[pos.symbol] ?? "";
@@ -755,7 +842,9 @@ async function tickUnlocked() {
         pos.quoteLabel === "delayed" ||
         pos.quoteLabel === "model" ||
         ((feed.includes("model") || feed === "nse-opt-model") && !feed.startsWith("binance")));
-    if (!(livePx > 0) && !sessionFlat && !staleCrypto) {
+    // IMP-30: Indian FO farm must still manage/time_stop + persist samples when mark missing/model.
+    const nseFoClip = isNseFo(pos.symbol);
+    if (!(livePx > 0) && !sessionFlat && !staleCrypto && !nseFoClip) {
       still.push(pos);
       continue;
     }
@@ -808,10 +897,12 @@ async function tickUnlocked() {
         stopPct: pos.stopPct,
         tpR: prof.TP_R,
         timedOut,
+        quoteCcy: quoteCcyOf(pos.symbol, mid),
+        usdInr: usdInrOf(eng),
       });
       const pnl = clip.pnl;
       const qbits = quoteBits(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]);
-      const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
+      const extra = foFieldsForPos(pos, eng.foMeta[pos.symbol]);
       const fill: Fill = {
         id: `${now}-${pos.symbol}-x-${Math.random().toString(16).slice(2, 8)}`,
         ts: now,
@@ -885,16 +976,19 @@ async function tickUnlocked() {
         positions: [],
         farmTail: true,
       });
-      if (lev === "no_leverage") drop.push(p);
+      if (lev === "no_leverage" || lev === "malformed_option") drop.push(p);
       else keep.push(p);
     }
     for (const pos of drop) {
+      const dropWhy = isMalformedOption(pos.symbol) ? "malformed_option" : "no_leverage";
       const mid = eng.live[pos.symbol] || eng.ticks[pos.symbol] || pos.entryPrice;
       const closeSide = pos.side === "short" ? "BUY" : "SELL";
       const cls = clsFor(pos.symbol, eng);
-      const px = fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
+      // IMP-38: a short-root mark follows today's ATM strike, not the opened contract — close flat
+      // at entry (no PnL, no sample) instead of booking a cross-strike mark.
+      const px = dropWhy === "malformed_option" ? pos.entryPrice : fillFromMid(mid, closeSide === "BUY" ? "buy" : "sell", cls);
       const pnl = pnlOf(pos, px);
-      const extra = foFields(pos.symbol, eng.foMeta[pos.symbol]);
+      const extra = foFieldsForPos(pos, eng.foMeta[pos.symbol]);
       const fill: Fill = {
         id: `cap_${pos.symbol}_${now}`,
         ts: now,
@@ -902,7 +996,7 @@ async function tickUnlocked() {
         side: closeSide,
         qty: pos.qty,
         price: px,
-        reason: `no_leverage:${pos.side}:paper`,
+        reason: `${dropWhy}:${pos.side}:paper`,
         ...quoteBits(eng.liveFeed[pos.symbol], eng.delayed[pos.symbol]),
         sleeve: pos.sleeve,
         ...extra,
@@ -924,6 +1018,10 @@ async function tickUnlocked() {
       if (!(liveLast > 0)) return null;
       if (eng.blocked.includes(sym)) return null;
       if (positions.some((p) => p.symbol === sym)) return null;
+      // IMP-38: no short-root aliases; one fill per canonical contract.
+      if (isMalformedOption(sym)) return null;
+      const key = contractKeyOf(sym, eng.foMeta[sym]);
+      if (positions.some((p) => contractKeyOf(p.symbol, eng.foMeta[p.symbol]) === key)) return null;
       const u = nameStub(sym, liveLast);
       const parts = factorParts(u);
       const score = compositeScore(parts, "Calm") ?? 6;
@@ -1029,6 +1127,9 @@ async function tickUnlocked() {
       if (openGate(row.sym, sleeve)) {
         continue;
       }
+      // IMP-38: re-check after earlier opens this tick (ranked was built before any push).
+      const rowKey = contractKeyOf(row.sym, eng.foMeta[row.sym]);
+      if (positions.some((p) => contractKeyOf(p.symbol, eng.foMeta[p.symbol]) === rowKey)) continue;
       const long = row.intent.action === "BUY";
       const short = row.intent.action === "SELL" && row.intent.reason === "fade_short";
       if (!long && !short) continue;
@@ -1555,9 +1656,11 @@ function flattenNow(e: Engine, symbol: string, now: number) {
       stopPct: pos.stopPct,
       tpR: profileOf(pos.sleeve ?? "farm").TP_R,
       timedOut: true,
+      quoteCcy: quoteCcyOf(pos.symbol, mid),
+      usdInr: usdInrOf(e),
     });
     const pnl = clip.pnl;
-    const extra = foFields(pos.symbol, e.foMeta[pos.symbol]);
+    const extra = foFieldsForPos(pos, e.foMeta[pos.symbol]);
     const qbits = quoteBits(e.liveFeed[pos.symbol], e.delayed[pos.symbol]);
     const fill: Fill = {
       id: `${now}-${pos.symbol}-flat-${Math.random().toString(16).slice(2, 8)}`,
@@ -1629,6 +1732,9 @@ function openNow(
   });
   if (skip && skip !== "universe_filter") return skip;
   if (e.positions.some((p) => p.symbol === symbol)) return "family_open";
+  // IMP-38: one fill per canonical contract.
+  const openKey = contractKeyOf(symbol, e.foMeta[symbol]);
+  if (e.positions.some((p) => contractKeyOf(p.symbol, e.foMeta[p.symbol]) === openKey)) return "family_open";
   const mid = e.live[symbol] || e.ticks[symbol];
   if (!(mid > 0)) return "bad_price";
   const profile = profileOf(sleeve);
@@ -1755,6 +1861,7 @@ export async function exportFitSamplesDownload(limit = 100_000): Promise<FitSamp
     };
   }
   const all: FitSampleRow[] = [];
+  const excludeIds = await loadSampleExcludeIds();
   const lines = txt.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -1782,6 +1889,7 @@ export async function exportFitSamplesDownload(limit = 100_000): Promise<FitSamp
         costBps?: number;
       };
       if (r.sleeve === PRED_SLEEVE || isPredSymbol(String(r.symbol ?? ""))) continue;
+      if (isExcludedSample(r, excludeIds)) continue;
       const hold = Number(r.hold_sec ?? r.holdSec ?? 0);
       const reason = String(r.reason_close ?? r.reasonClose ?? "");
       const fwd = Number(r.fwd_ret ?? r.fwdRet ?? 0);

@@ -289,6 +289,64 @@ export function isCryptoHoursName(symbol: string, feed?: string) {
 
 export type OpenSkipPos = { symbol: string; sleeve?: string };
 
+/** IMP-38: NSE roots whose options must always be canonical `ROOT DDMONYY STRIKE CE|PE`. */
+export const NSE_OPTION_ROOTS = [
+  "NIFTY",
+  "BANKNIFTY",
+  "FINNIFTY",
+  "MIDCPNIFTY",
+  "SENSEX",
+  "RELIANCE",
+  "HDFCBANK",
+  "ICICIBANK",
+  "TCS",
+  "INFY",
+  "LT",
+  "POLYCAB",
+] as const;
+
+/**
+ * IMP-38: short-root option alias (ROOTCE / ROOTPE, BTCCM / BTCPE) — no expiry, no strike.
+ * These are UI ATM aliases only; their mark follows whatever strike is ATM *now*, so they must
+ * never open, mark, or persist as a contract. Crypto spot like APE / PEPE is not matched.
+ */
+export function isShortRootOption(sym: string): boolean {
+  const u = String(sym ?? "").trim().toUpperCase();
+  if (!u) return false;
+  if (OPTION_STUBS.has(u)) return true;
+  const m = u.match(/^([A-Z&]+)(CE|PE)$/);
+  if (!m) return false;
+  return (NSE_OPTION_ROOTS as readonly string[]).includes(m[1]!);
+}
+
+/** IMP-38: canonical option = parses with expiry + strike > 0 + CE/PE. */
+export function isCanonicalOption(sym: string): boolean {
+  const fo = parseFo(sym);
+  return !!fo && (fo.right === "CE" || fo.right === "PE") && !!fo.expiry && fo.strike != null && fo.strike > 0;
+}
+
+/**
+ * IMP-38: option-looking symbol that is not a canonical contract
+ * (short root, or `ROOT DDMONYY CE` with no strike). FUT / PERP / spot return false.
+ */
+export function isMalformedOption(sym: string): boolean {
+  if (isShortRootOption(sym)) return true;
+  const fo = parseFo(sym);
+  if (fo && (fo.right === "CE" || fo.right === "PE")) return !isCanonicalOption(sym);
+  return false;
+}
+
+/** IMP-38: one fill per contract — key positions/candidates by canonical contract. */
+export function contractKeyOf(sym: string, meta?: { contract?: string }): string {
+  const fo = parseFo(sym);
+  if (fo) return fo.symbol;
+  if (isShortRootOption(sym) && meta?.contract) {
+    const c = parseFo(meta.contract);
+    if (c) return c.symbol;
+  }
+  return String(sym ?? "").trim().toUpperCase();
+}
+
 function isPredName(sym: string) {
   const u = sym.toUpperCase();
   return u === "BTC5M_YES" || u === "BTC5M_NO";
@@ -308,6 +366,8 @@ export function openSkipReason(args: {
 }): string | null {
   const sleeve = args.sleeve ?? "farm";
   const feed = args.feed ?? "";
+  // IMP-38: short-root / strike-less option aliases never open (no expiry, mark follows ATM).
+  if (isMalformedOption(args.symbol)) return "malformed_option";
   // Cash + INR F&O wait for a real NSE cash/FO session (weekday, hours, holiday table).
   if (!args.openSession && !isCryptoHoursName(args.symbol, feed)) return "nse_session_closed";
   if (isCryptoFo(args.symbol) && (!feed.startsWith("binance") || args.delayed)) return "stale_model";
