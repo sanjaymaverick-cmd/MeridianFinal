@@ -71,28 +71,29 @@ export function rankFromUniverse(query: string, names: RankInput[]): ResearchRan
 
   const scored = names
     .map((u) => {
-      let s = 0;
+      // Quality is a tie-break only. It must not mint a canned six-pack.
+      let match = 0;
       const themes = u.themes.map((t) => t.replace(/-/g, " "));
       for (const t of themes) {
-        if (q.includes(t)) s += 5;
-        for (const tok of toks) if (t.includes(tok)) s += 2;
+        if (q.includes(t)) match += 5;
+        for (const tok of toks) if (t.includes(tok)) match += 2;
       }
-      if (wantSpares && themes.some((t) => /cable|ai data|power|ems|cooling|grid/.test(t))) s += 10;
-      if (wantAi && themes.some((t) => t.includes("ai data") || t.includes("cable") || t.includes("power"))) s += 4;
-      if (wantCrypto && u.assetClass === "crypto") s += 12;
-      if (wantFx && u.assetClass === "forex") s += 12;
-      if (wantCmd && u.assetClass === "commodity") s += 12;
-      if (stress && u.symbol === "GOLD") s += 4;
-      if (wantBank && u.themes.includes("banks")) s += 6;
-      if (wantIt && u.themes.includes("it-services")) s += 4;
-      if (wantCrypto && u.assetClass !== "crypto") s -= 14;
-      if (wantFx && u.assetClass !== "forex") s -= 14;
-      if (wantCmd && u.assetClass !== "commodity") s -= 14;
-      if (wantSpares && (u.themes.includes("banks") || u.themes.includes("it-services"))) s -= 10;
-      s += u.quality / 8;
-      return { u, s };
+      if (wantSpares && themes.some((t) => /cable|ai data|power|ems|cooling|grid/.test(t))) match += 10;
+      if (wantAi && themes.some((t) => t.includes("ai data") || t.includes("cable") || t.includes("power"))) match += 4;
+      if (wantCrypto && u.assetClass === "crypto") match += 12;
+      if (wantFx && u.assetClass === "forex") match += 12;
+      if (wantCmd && u.assetClass === "commodity") match += 12;
+      if (stress && u.symbol === "GOLD") match += 4;
+      if (wantBank && u.themes.includes("banks")) match += 6;
+      if (wantIt && u.themes.includes("it-services")) match += 4;
+      if (wantCrypto && u.assetClass !== "crypto") match -= 14;
+      if (wantFx && u.assetClass !== "forex") match -= 14;
+      if (wantCmd && u.assetClass !== "commodity") match -= 14;
+      if (wantSpares && (u.themes.includes("banks") || u.themes.includes("it-services"))) match -= 10;
+      if (match <= 0) return null;
+      return { u, s: match + u.quality / 8 };
     })
-    .filter((r) => r.s >= 4)
+    .filter((r): r is { u: RankInput; s: number } => r != null && r.s >= 4)
     .sort((a, b) => b.s - a.s)
     .slice(0, 6);
 
@@ -120,4 +121,30 @@ export function rankFromUniverse(query: string, names: RankInput[]): ResearchRan
     source: "desk",
     emptyNote: null,
   };
+}
+
+export type ResearchAnswer = ResearchRank & { source: "heuristic" | "grok" };
+
+/**
+ * IMP-19: rank the query, or empty with a reason.
+ * A model payload that matches nothing is not shown — no canned six-pack.
+ */
+export function researchAnswer(
+  query: string,
+  names: RankInput[],
+  grokSymbols?: readonly string[] | null,
+): ResearchAnswer {
+  const ranked = rankFromUniverse(query, names);
+  if (!ranked.names.length) {
+    return { ...ranked, source: "heuristic" };
+  }
+  const allow = new Set(ranked.names.map((n) => n.symbol.toUpperCase()));
+  const hit = (grokSymbols ?? []).some((s) => allow.has(String(s).toUpperCase()));
+  return { ...ranked, source: hit ? "grok" : "heuristic" };
+}
+
+/** Guest copy. Never the word "model". */
+export function researchSourceLabel(source: string, signedIn: boolean): string {
+  if (source === "grok") return "Grok";
+  return signedIn ? "Grok unavailable — desk heuristic" : "desk heuristic";
 }

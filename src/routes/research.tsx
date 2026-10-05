@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/input";
 import { listResearchHistory, runResearch, type ResearchName } from "@/lib/server/desk";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { rankResearch } from "@/lib/meridian/research-rank";
+import { researchSourceLabel } from "@/lib/meridian/research-rank-core";
 import { runDeskOp } from "@/components/auto-engine";
 import { PromotionChip } from "@/components/promotion-strip";
 import { paperBlockedReason } from "@/lib/meridian/session-lock";
@@ -81,14 +82,14 @@ function ResearchPage() {
       if (!user) {
         const res = rankResearch(query);
         setNames(res.names);
-        setSource("desk heuristic");
+        setSource(researchSourceLabel("desk", false));
         setEmptyNote(res.emptyNote);
         remember({ query, at: new Date().toISOString(), source: "desk heuristic", names: res.names, emptyNote: res.emptyNote });
         return;
       }
       const res = await runResearch({ data: { query } });
       setNames(res.names);
-      setSource(res.source === "grok" ? "Grok" : "desk heuristic");
+      setSource(researchSourceLabel(res.source, true));
       setEmptyNote("emptyNote" in res ? ((res as { emptyNote?: string | null }).emptyNote ?? null) : null);
       remember({ query, at: new Date().toISOString(), source: res.source, names: res.names });
     } catch (e) {
@@ -176,7 +177,7 @@ function ResearchPage() {
         )}
         {source && (
           <p className="text-xs text-subtle">
-            Source: {source === "Grok" ? "Grok" : user ? "Grok unavailable — desk heuristic" : "desk heuristic"}. Not an order.
+            Source: {source}. Not an order.
           </p>
         )}
 

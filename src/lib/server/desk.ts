@@ -4,7 +4,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { UNIVERSE, detectRegime } from "@/lib/meridian/universe";
 import { buildAdvice, istSession, type MarketState } from "@/lib/meridian/advice";
 import { parseHoldingsCsv, type HoldingRow } from "@/lib/meridian/portfolio";
-import { rankResearch } from "@/lib/meridian/research-rank";
+import { answerResearch, rankResearch } from "@/lib/meridian/research-rank";
 import { getArtefact } from "@/lib/meridian/artefact";
 import { seedTestDeskUser } from "@/lib/server/seed-test-user";
 import { getHistoryBars, getLiveBook, overlayName, type LiveQuote } from "@/lib/server/quotes";
@@ -220,41 +220,50 @@ export const runResearch = createServerFn({ method: "POST" })
     if (!apiKey) {
       return heuristicResearch(data.query);
     }
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "grok-4.5",
-        max_tokens: 900,
-        temperature: 0.3,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are Meridian Final's Indian-equity research desk. Return ONLY JSON: {\"names\":[{\"symbol\",\"name\",\"sector\",\"score\",\"why\",\"risk\",\"sleeve\"}]}. Use ONLY symbols from the provided universe. score 0-10. sleeve is Spot|Futures|Options. Keep why/risk to two sentences. Not investment advice. Max 6 names.",
-          },
-          {
-            role: "user",
-            content: `Query: ${data.query}\nUniverse: ${JSON.stringify(catalog)}`,
-          },
-        ],
-      }),
-    });
-    if (!res.ok) return heuristicResearch(data.query);
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = body.choices?.[0]?.message?.content ?? "";
-    const json = extractJson(text);
-    const names = (json?.names ?? []) as ResearchName[];
-    if (!names.length) return heuristicResearch(data.query);
-    const sql = await getSql();
-    await sql`
-      insert into research_runs (user_id, query, result_json)
-      values (${context.userId}, ${data.query}, ${JSON.stringify(names)})
-    `;
-    return { ok: true as const, source: "grok" as const, names: names.slice(0, 6) };
+    try {
+      const res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "grok-4.5",
+          max_tokens: 900,
+          temperature: 0.3,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are Meridian Final's Indian-equity research desk. Return ONLY JSON: {\"names\":[{\"symbol\",\"name\",\"sector\",\"score\",\"why\",\"risk\",\"sleeve\"}]}. Use ONLY symbols from the provided universe. score 0-10. sleeve is Spot|Futures|Options. Keep why/risk to two sentences. Not investment advice. Max 6 names.",
+            },
+            {
+              role: "user",
+              content: `Query: ${data.query}\nUniverse: ${JSON.stringify(catalog)}`,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) return heuristicResearch(data.query);
+      const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = body.choices?.[0]?.message?.content ?? "";
+      const json = extractJson(text);
+      const names = (json?.names ?? []) as ResearchName[];
+      // IMP-19: keep the rank or empty. A model six-pack that misses the query is not returned.
+      const answered = answerResearch(
+        data.query,
+        names.map((n) => n.symbol),
+      );
+      if (!answered.names.length || answered.source !== "grok") return heuristicResearch(data.query);
+      const sql = await getSql();
+      await sql`
+        insert into research_runs (user_id, query, result_json)
+        values (${context.userId}, ${data.query}, ${JSON.stringify(answered.names)})
+      `;
+      return { ok: true as const, source: "grok" as const, names: answered.names, emptyNote: null };
+    } catch {
+      return heuristicResearch(data.query);
+    }
   });
 
 function extractJson(text: string): { names?: ResearchName[] } | null {
