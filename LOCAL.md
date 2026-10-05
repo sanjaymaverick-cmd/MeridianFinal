@@ -81,6 +81,7 @@ Training files (created while Auto is on):
 data/paper-samples.jsonl      labelled clips (features + fwd return)
 data/paper-heartbeat.json     last tick, open count, live names
 data/paper-daily.json         IST day + realised dailyPnl (not inside pglite)
+data/paper-session.json       last mode (fresh book boots paused; a saved auto book stays auto)
 data/pglite/                  embedded DB if PGLITE_DATA_DIR is set
 ```
 

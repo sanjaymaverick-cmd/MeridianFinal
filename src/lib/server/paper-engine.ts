@@ -88,6 +88,8 @@ import {
 } from "@/lib/meridian/fo-contracts";
 import { foOptionQtySkip } from "@/lib/meridian/fo-size";
 import { istCalendarDay, reconcileDailyPnl, type DailyBook } from "@/lib/meridian/daily-book";
+import { fitSkipReason } from "@/lib/meridian/fit-eligible";
+import { bootFromHeartbeat, bootFromSavedSession, freshBookBoot } from "@/lib/meridian/boot-session";
 import { formatIstStamp } from "@/lib/utils";
 import {
   FARM_CORE,
@@ -329,6 +331,8 @@ const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
 const HEARTBEAT = path.join(DATA_DIR, "paper-heartbeat.json");
 /** Outside the PGLite dir so a reseat cannot wipe the IST day. Not committed. */
 const DAILY_FILE = path.join(DATA_DIR, "paper-daily.json");
+/** Last operator mode. Outside PGLite. Not committed. Fresh book if missing. */
+const SESSION_FILE = path.join(DATA_DIR, "paper-session.json");
 
 function readDailyFile(): DailyBook | null {
   try {
@@ -346,6 +350,32 @@ function writeDailyFile(book: DailyBook) {
   try {
     mkdirSync(DATA_DIR, { recursive: true });
     writeFileSync(DAILY_FILE, JSON.stringify(book));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readSessionRaw(): { mode?: unknown; killed?: unknown } | null {
+  try {
+    return JSON.parse(readFileSync(SESSION_FILE, "utf8")) as { mode?: unknown; killed?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function readHeartbeatRaw(): { mode?: unknown; killed?: unknown; ts?: unknown } | null {
+  try {
+    return JSON.parse(readFileSync(HEARTBEAT, "utf8")) as { mode?: unknown; killed?: unknown; ts?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist mode so a later process restart does not Halt a running auto book. */
+function writeSessionFile(eng: { mode: PaperBook["mode"]; killed: boolean }) {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(SESSION_FILE, JSON.stringify({ mode: eng.mode, killed: eng.killed }));
   } catch {
     /* ignore */
   }
@@ -419,7 +449,7 @@ const g = globalThis as typeof globalThis & {
   __paperTickGen__?: number;
   __paperSampleIds__?: Set<string>;
 };
-const ENGINE_REV = 44;
+const ENGINE_REV = 46;
 
 function seedTicks() {
   const t: Record<string, number> = {};
@@ -806,16 +836,8 @@ async function tick() {
     g.__paperTickLockSince__ = 0;
     const hung = g.__meridianPaper?.eng;
     if (hung) {
-      // IMP-35: old bug set daily_loss / dailyPnl to 0 here. Keep the same IST day. Do not flatten.
-      const kept = reconcileDailyPnl({
-        nowMs: now,
-        file: readDailyFile(),
-        memoryPnl: hung.dailyPnl,
-        memoryIst: hung.dailyIst ?? istCalendarDay(now),
-      });
-      hung.dailyPnl = kept.dailyPnl;
-      hung.dailyIst = kept.ist;
-      writeDailyFile(kept);
+      // IMP-35: old bug set daily_loss / dailyPnl to 0 here. Keep the figure.
+      // Do not roll the IST day in recovery. Pause does not roll either. Do not flatten.
       hung.scanHealth = assessScanHealth({
         now,
         lastTick: hung.lastTick,
@@ -1340,8 +1362,13 @@ export function startPaperEngine() {
   const existed = !!g.__meridianPaper?.eng;
   const eng = g.__meridianPaper?.eng ?? emptyEngine();
   if (!existed) {
-    eng.mode = "advisory";
-    eng.killed = true;
+    // Fresh book stays paused. A saved auto/paper session is restored. Never Arm.
+    const saved = readSessionRaw();
+    const boot = saved
+      ? bootFromSavedSession(saved)
+      : (bootFromHeartbeat(readHeartbeatRaw(), Date.now()) ?? freshBookBoot());
+    eng.mode = boot.mode;
+    eng.killed = boot.killed;
   }
   eng.liveFeed ??= {};
   eng.delayed ??= {};
@@ -1359,6 +1386,7 @@ export function startPaperEngine() {
   eng.quality ??= { n: 0, timeStopN: 0, qualityHoldN: 0, avgHoldSec: 0 };
   if (existed && !eng.dailyIst && eng.dailyPnl !== 0) eng.dailyIst = istCalendarDay(Date.now());
   persistDaily(eng);
+  writeSessionFile(eng);
   const timer = setInterval(() => {
     tick().catch((err) => console.error("[paper] tick", err));
   }, 2500);
@@ -1437,6 +1465,8 @@ export function setEngineFlags(patch: { mode?: PaperBook["mode"]; killed?: boole
   const e = getEngine();
   if (patch.mode) e.mode = patch.mode;
   if (patch.killed != null) e.killed = patch.killed;
+  // Pause / Resume paper writes the session. It does not roll dailyPnl.
+  writeSessionFile(e);
   return snapshotBook();
 }
 
@@ -1450,6 +1480,7 @@ export function resetEngine() {
   eng.dailyIst = ist;
   eng.dailyPnl = 0;
   writeDailyFile({ ist, dailyPnl: 0 });
+  writeSessionFile(eng);
   eng.mode = prev?.eng.mode ?? "advisory";
   eng.killed = prev?.eng.killed ?? true;
   eng.blocked = blocked;
@@ -1962,9 +1993,16 @@ export async function exportFitSamplesDownload(limit = 100_000): Promise<FitSamp
         label_barrier?: number;
         barrier?: string;
         costBps?: number;
+        quoteLabel?: string;
+        fwdRetGross?: number;
+        tsClose?: number;
+        closed_ist?: string;
+        id?: string;
+        usd_inr?: number;
       };
       if (r.sleeve === PRED_SLEEVE || isPredSymbol(String(r.symbol ?? ""))) continue;
       if (isExcludedSample(r, excludeIds)) continue;
+      if (fitSkipReason(r, {})) continue;
       const hold = Number(r.hold_sec ?? r.holdSec ?? 0);
       const reason = String(r.reason_close ?? r.reasonClose ?? "");
       const fwd = Number(r.fwd_ret ?? r.fwdRet ?? 0);

@@ -61,8 +61,11 @@ test("IMP-35 old bug: recovery and PGLite reseat set daily_loss to 0 on the same
 
   const engine = readFileSync(join(root, "../src/lib/server/paper-engine.ts"), "utf8");
   assert.match(engine, /old bug set daily_loss \/ dailyPnl to 0/);
-  assert.match(engine, /Hung recovery does not flatten|Do not flatten/);
+  assert.match(engine, /Do not roll the IST day/);
+  assert.match(engine, /Do not flatten/);
   assert.doesNotMatch(engine, /hung\.dailyPnl = 0/);
+  const recovery = engine.slice(engine.indexOf("old bug set daily_loss"), engine.indexOf("hung.scanHealth"));
+  assert.doesNotMatch(recovery, /reconcileDailyPnl/);
   const db = readFileSync(join(root, "../src/lib/db.ts"), "utf8");
   assert.match(db, /dailyFileOutsidePglite/);
 });
