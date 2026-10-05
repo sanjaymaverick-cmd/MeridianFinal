@@ -116,6 +116,12 @@ const out = {
   samplesHb: hb?.samples ?? null,
   samplesFile: rows.length,
   pnlUsdSum: rows.reduce((a, r) => a + Number(r.pnl || 0), 0),
+  // IMP-38: sum of pnl_usd (INR rows ÷ USDINR from ENGINE_REV 43; older rows carry pnl_usd = pnl).
+  pnlUsdFieldSum: rows.reduce((a, r) => a + Number(r.pnl_usd ?? r.pnl ?? 0), 0),
+  // IMP-38: open short-root option aliases (NIFTYCE, HDFCBANKPE…) — should be [] after the fix.
+  shortRootOpen: (hb?.names ?? []).filter((n) =>
+    /^(?:[a-z]+:)?(?:NIFTY|BANKNIFTY|FINNIFTY|MIDCPNIFTY|SENSEX|RELIANCE|HDFCBANK|ICICIBANK|TCS|INFY|LT|POLYCAB)(?:CE|PE)$|^(?:[a-z]+:)?BTC(?:CM|PE)$/.test(String(n)),
+  ),
   shown0: tiny.filter((r) => shown(r.pnl) === 0).length,
   shown1: tiny.filter((r) => shown(r.pnl) === 1).length,
   shownM1: tiny.filter((r) => shown(r.pnl) === -1).length,
