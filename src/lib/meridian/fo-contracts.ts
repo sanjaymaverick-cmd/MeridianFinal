@@ -212,6 +212,36 @@ export function atmPremium(spot: number, sigma: number, days: number) {
   return bsPremium(spot, spot, sigma, days, "CE", 0);
 }
 
+export type CanonicalFoMark = {
+  strike: number;
+  premium: number;
+  feed: "nse-opt-model";
+  quoteLabel: "model";
+};
+
+/**
+ * IMP-40: mark an open canonical contract from its own strike.
+ * `atmStrike` is accepted so callers can show it moved, and is not used.
+ * The premium is a model mark, not an exchange last.
+ */
+export function markCanonicalFo(args: {
+  spot: number;
+  contractStrike: number;
+  atmStrike: number;
+  sigma: number;
+  days: number;
+  right: "CE" | "PE";
+  rate?: number;
+}): CanonicalFoMark {
+  const strike = args.contractStrike;
+  return {
+    strike,
+    premium: bsPremium(args.spot, strike, args.sigma, args.days, args.right, args.rate ?? 0.065),
+    feed: "nse-opt-model",
+    quoteLabel: "model",
+  };
+}
+
 export function isFoSymbol(sym: string): boolean {
   if (parseFo(sym)) return true;
   const u = sym.toUpperCase();
