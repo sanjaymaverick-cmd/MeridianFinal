@@ -8,6 +8,7 @@ import { FIT_MIN_N } from "@/lib/meridian/kelly";
 import { fitLogistic, hitRate, predictRow, rocAuc, timeSplit } from "@/lib/meridian/logistic";
 import { isPredSample } from "@/lib/meridian/pred-orb";
 import { SAMPLE_EXCLUDE_FILE, isExcludedSample, parseExcludeList } from "@/lib/meridian/sample-exclude";
+import { fitSkipReason, type FitReadOpts } from "@/lib/meridian/fit-eligible";
 
 const DATA_DIR = meridianDataDir();
 const JSONL = path.join(DATA_DIR, "paper-samples.jsonl");
@@ -109,6 +110,8 @@ export async function sampleQuality(jsonlPath = JSONL, excludePath = EXCLUDE_PAT
     }
     if (isPredSample(row)) continue;
     if (isExcludedSample(row, excludeIds)) continue;
+    // Same default fit as retrain: crypto spot, no 13 Sep gross, no model quote, no option/FUT.
+    if (fitSkipReason(row, {})) continue;
     n += 1;
     const hold = Number(row.hold_sec ?? row.holdSec);
     if (Number.isFinite(hold)) {
@@ -121,7 +124,11 @@ export async function sampleQuality(jsonlPath = JSONL, excludePath = EXCLUDE_PAT
   return { n, timeStopN, qualityHoldN, avgHoldSec: n ? holdSum / n : 0 };
 }
 
-export async function retrainFromJsonl(jsonlPath = JSONL, excludePath = EXCLUDE_PATH): Promise<ArtefactStatus | null> {
+export async function retrainFromJsonl(
+  jsonlPath = JSONL,
+  excludePath = EXCLUDE_PATH,
+  opts: FitReadOpts = {},
+): Promise<ArtefactStatus | null> {
   const excludeIds = await loadSampleExcludeIds(excludePath);
   let txt = "";
   try {
@@ -137,6 +144,8 @@ export async function retrainFromJsonl(jsonlPath = JSONL, excludePath = EXCLUDE_
       if (isPredSample(row)) continue;
       // IMP-38: short-root option rows + exclude-list ids never reach the fit (gates unchanged).
       if (isExcludedSample(row, excludeIds)) continue;
+      // Default fit: drop 13 Sep gross labels, model quotes, and option/FUT (no invented FX).
+      if (fitSkipReason(row, opts)) continue;
       rows.push(row);
     } catch {
       /* skip */
